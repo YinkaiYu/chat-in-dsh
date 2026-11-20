@@ -8,6 +8,7 @@ window.__ModuleLoader__.load({
   id: 'chat-in-dsh',
   factory(require) {
     const React = require('react')
+    const { createPortal } = require('react-dom')
     const h = React.createElement
 
     // 官方字标（小鲸鱼）内联为 data URI：侧栏图标不依赖任何额外请求。
@@ -74,24 +75,203 @@ window.__ModuleLoader__.load({
       for (const listener of importBus.listeners) listener(importBus.token)
     }
 
-    const frame = (key, src, title) => h('iframe', {
+    const modelSeat = 'conversation.input.model'
+    const modelDefault = '/webchat/api/model/default'
+
+    /** Supply the native selector with the profile default in place of a session directory. */
+    function defaultModelDirectory(ctx) {
+      let state = { current: null, groups: [], failures: [], status: 'idle', pending: null, error: null }
+      let loading
+      let saves = 0
+      const listeners = new Set()
+      const update = (next) => {
+        state = { ...state, ...next }
+        for (const listener of listeners) listener()
+      }
+      const store = {
+        getSnapshot: () => state,
+        subscribe(listener) {
+          listeners.add(listener)
+          return () => listeners.delete(listener)
+        },
+      }
+      const read = async () => {
+        const revision = saves
+        try {
+          const response = await fetch(modelDefault)
+          if (!response.ok) return
+          const { current } = await response.json()
+          if (saves === revision && state.pending === null && JSON.stringify(current) !== JSON.stringify(state.current)) {
+            update({ current })
+          }
+        } catch {
+          // Retry on the next refresh.
+        }
+      }
+      const load = () => {
+        if (loading) return loading
+        update({ status: 'loading', error: null })
+        loading = Promise.resolve().then(async () => {
+          try {
+            const result = await ctx.get('remote').session.modelCatalog()
+            if (!result.ok) throw new Error(result.error.message)
+            update({ groups: result.value.groups, failures: result.value.failures, status: 'ready' })
+            await read()
+          } catch (error) {
+            update({ status: 'error', error: String(error?.message ?? error) })
+          } finally {
+            loading = undefined
+          }
+        })
+        return loading
+      }
+      const select = async (pending) => {
+        saves += 1
+        update({ pending, error: null })
+        try {
+          const response = await fetch(modelDefault, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(pending),
+          })
+          const body = await response.json()
+          if (!response.ok) throw new Error(body.error?.message ?? String(response.status))
+          update({ current: body.current })
+          return { ok: true, value: body.current }
+        } catch (error) {
+          return { ok: false, error: { code: 'webchat/model', message: String(error?.message ?? error) } }
+        } finally {
+          update({ pending: null })
+        }
+      }
+      return { store, load, read, select }
+    }
+
+    /** Keep the native button and its drop-down in the host document for CSS anchoring. */
+    function ModelPicker({ ctx, iframe }) {
+      const slot = React.useSyncExternalStore(
+        (fn) => ctx.slots.subscribe(modelSeat, fn),
+        () => ctx.slots.entries(modelSeat).find(entry => entry.locale === 'model'),
+      )
+      const NativePicker = slot?.component
+      const [position, setPosition] = React.useState(null)
+      const directory = React.useMemo(() => defaultModelDirectory(ctx), [ctx])
+      React.useEffect(() => {
+        if (!NativePicker) return
+        void directory.load()
+        const timer = setInterval(directory.read, 1000)
+        return () => clearInterval(timer)
+      }, [NativePicker, directory])
+
+      React.useEffect(() => {
+        if (!iframe || !NativePicker) return
+        let doc
+        let tick = 0
+        let anchor
+        const readPosition = () => {
+          tick = 0
+          const next = doc?.querySelector('[data-dsh-model-picker]')
+          if (next !== anchor) {
+            if (anchor) resize.unobserve(anchor)
+            anchor = next
+            if (anchor) resize.observe(anchor)
+          }
+          const viewport = iframe.getBoundingClientRect()
+          if (!anchor || viewport.width === 0) {
+            setPosition(null)
+            return
+          }
+          const compact = viewport.width < 480
+          const width = compact ? 30 : Math.min(225, Math.round(viewport.width / 4))
+          anchor.hidden = false
+          if (anchor.style.width !== `${width}px`) anchor.style.width = `${width}px`
+          const { left, top, height } = anchor.getBoundingClientRect()
+          if (!height || top < 0 || top + height > viewport.height) {
+            setPosition(null)
+            return
+          }
+          const x = viewport.left + left
+          const y = viewport.top + top
+          setPosition(old => old?.x === x && old?.y === y && old?.width === width ? old : { x, y, width, compact })
+        }
+        const schedule = () => {
+          if (tick === 0) tick = requestAnimationFrame(readPosition)
+        }
+        const closeFromFrame = () => document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+        const resize = new ResizeObserver(schedule)
+        const mutations = new MutationObserver(schedule)
+        const detachDocument = () => {
+          mutations.disconnect()
+          doc?.removeEventListener('scroll', schedule, true)
+          doc?.removeEventListener('mousedown', closeFromFrame, true)
+        }
+        const attachDocument = () => {
+          detachDocument()
+          doc = iframe.contentDocument
+          if (!doc?.body) return
+          mutations.observe(doc.body, { childList: true, subtree: true })
+          doc.addEventListener('scroll', schedule, true)
+          doc.addEventListener('mousedown', closeFromFrame, true)
+          schedule()
+        }
+        resize.observe(iframe)
+        iframe.addEventListener('load', attachDocument)
+        window.addEventListener('resize', schedule)
+        window.addEventListener('scroll', schedule, true)
+        attachDocument()
+        return () => {
+          if (tick !== 0) cancelAnimationFrame(tick)
+          resize.disconnect()
+          detachDocument()
+          iframe.removeEventListener('load', attachDocument)
+          window.removeEventListener('resize', schedule)
+          window.removeEventListener('scroll', schedule, true)
+          if (anchor) anchor.hidden = true
+        }
+      }, [iframe, NativePicker])
+
+      if (!NativePicker || !position) return null
+      const locale = ctx.get('locale')
+      return createPortal(h('div', {
+        'data-composer-card': '',
+        'data-chat-in-dsh-model': '',
+        style: {
+          position: 'fixed', left: position.x, top: position.y,
+          maxWidth: position.width, zIndex: 3,
+          ...(position.compact ? {
+            '--dsh-composer-model-icon-display': 'inline-flex',
+            '--dsh-composer-model-text-display': 'none',
+          } : {}),
+        },
+      }, h(NativePicker, {
+        locked: false, available: true, directory: directory.store,
+        load: directory.load, select: directory.select,
+        resolveText: text => locale.resolveText(text), t: locale.bind('model'),
+        renderSlot: (_key, _owner, options) => options?.fallback ?? null,
+      })), document.body)
+    }
+
+    const frame = (key, src, title, ref) => h('iframe', {
       key,
       src,
       title,
+      ref,
       allow: 'clipboard-write; microphone',
       style: { width: '100%', height: '100%', border: 'none', display: 'block', background: '#fff' },
     })
 
     /** 左侧面板：完整的网页版，带它自己的会话列表。 */
-    function Panel() {
+    function Panel({ context }) {
       const [token, setToken] = React.useState(importBus.token)
+      const [iframe, setIframe] = React.useState(null)
       React.useEffect(() => {
         const listener = (value) => setToken(value)
         importBus.listeners.add(listener)
         return () => importBus.listeners.delete(listener)
       }, [])
       return h('div', { style: { height: '100%', minHeight: 320, display: 'flex' } },
-        h('div', { style: { flex: 1, minWidth: 0 } }, frame(token, '/webchat/', 'DeepSeek 网页版')))
+        h('div', { style: { flex: 1, minWidth: 0 } }, frame(token, '/webchat/', 'DeepSeek 网页版', setIframe)),
+        h(ModelPicker, { ctx: context, iframe }))
     }
 
     /** 会话菜单里的图标：一个"导入到托盘"的线性图标，风格对齐宿主其它条目。 */
@@ -122,7 +302,7 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots', 'layout', 'contextMenus'],
+      inject: ['slots', 'layout', 'contextMenus', 'locale', 'remote', 'remote.session'],
       apply(ctx) {
         installMicBridge()
         const stopAvatar = publishUserAvatar()
@@ -130,7 +310,7 @@ window.__ModuleLoader__.load({
         ctx.effect(() => ctx.slots.inject('main', () => ctx.slots.register({
           name: 'main',
           key: 'chat-in-dsh',
-        }, Panel)), 'webchat.panel')
+        }, () => h(Panel, { context: ctx }))), 'webchat.panel')
 
         ctx.effect(() => ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
           name: 'sidebar.panellist',

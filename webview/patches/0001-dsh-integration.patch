@@ -397,7 +397,7 @@ index c4594f8..92a3698 100644
    border: none;
    border-radius: 50%;
 diff --git a/src/components/chatInput/ChatInput.tsx b/src/components/chatInput/ChatInput.tsx
-index 7a66a71..3cc2aea 100644
+index 7a66a71..33f85dd 100644
 --- a/src/components/chatInput/ChatInput.tsx
 +++ b/src/components/chatInput/ChatInput.tsx
 @@ -1,5 +1,6 @@
@@ -672,6 +672,14 @@ index 7a66a71..3cc2aea 100644
          />
          {recording && isMobile ? <Spectrum getAnalyser={voice.getAnalyser} /> : null}
          <div className={styles.mirror} aria-hidden>
+@@ -228,6 +401,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
+           </Tooltip>
+         </div>
+         <div className={styles.right}>
++          <div data-dsh-model-picker="" hidden aria-hidden="true" style={{ height: 28 }} />
+           <VoiceButton
+             status={voice.status}
+             disabled={!voice.available}
 diff --git a/src/components/chatInput/DraftAttachments.tsx b/src/components/chatInput/DraftAttachments.tsx
 index e55359c..8c6190c 100644
 --- a/src/components/chatInput/DraftAttachments.tsx
