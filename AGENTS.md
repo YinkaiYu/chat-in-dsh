@@ -11,7 +11,8 @@
 | 块 | 文件 | 作用 |
 |---|---|---|
 | 宿主 | `index.js` | 注册 `/webchat` 前缀路由（**必须用 `handler`，`resource` 只接 GET/HEAD**） |
-| 路由 | `src/webview.js` | 静态产物、`/webchat/api/*` 自检与导入接口、Messages / Files 转发 |
+| 路由 | `src/webview.js` | 静态产物、自检、模型默认值、导入和上游转发 |
+| 模型 | `src/dsh-model.js` | 复用 DSH 新会话默认模型，通过模型服务调用已配置的提供商 |
 | 约定 | `src/protocol.js` | 端点根、令牌头、路径越界判断（纯函数，有测试） |
 | 导入 | `src/dsh-import.js` | 只读解析 DSH 会话日志 → chat-demo 格式；暂存与确认（纯函数，有测试） |
 | 界面 | `client.js` | 左侧面板两个槽位（`main` + `sidebar.panellist`）与会话右键菜单贡献（`contextMenus`） |
@@ -29,7 +30,7 @@
 ## 命令
 
 ```bash
-node --test test/protocol.test.js test/dsh-import.test.js
+npm test
 pwsh scripts/build-webview.ps1     # 克隆上游、打补丁、构建、同步 webview/dist
 ```
 
@@ -40,7 +41,7 @@ pwsh scripts/build-webview.ps1     # 克隆上游、打补丁、构建、同步 
 
 1. **一个入口**：只有左侧面板。不要加模型路由、不要加 `conversation.view`、不要做会话双向同步——这是产品决定，不是待办。
 2. **网页版独立存储**：用上游自带的本地存储；只有「导入」这一次性复制会从 DSH 读数据。
-3. **不发明提示词**：浏览器构造请求体，宿主只转发。
+3. **不发明提示词**：浏览器构造提示词和消息，宿主转发 DeepSeek 账号模型请求，或将调用转换为 DSH 模型服务接受的协议。
 4. **密钥不出宿主**：浏览器不持有 API Key；`BOOTSTRAP` 注入的只是让上游放行的占位值。
 5. **许可证合规**：`webview/dist/LICENSE` 是上游 MIT 原文，不要删。
 

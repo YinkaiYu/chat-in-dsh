@@ -16,6 +16,9 @@ import { pipeline } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
 import { DEFAULT_BASE_URL, TOKEN_HEADER, apiRoot, isInside } from './protocol.js'
 import { ackPending, listPending, readDshSession, stageImport } from './dsh-import.js'
+import {
+  ACCOUNT_PROVIDER, accountMessageBody, currentModel, llmRequest, saveDefaultModel, streamConfiguredModel,
+} from './dsh-model.js'
 
 /** 构建产物位置（包内自带，安装即可用）。 */
 const DIST = fileURLToPath(new URL('../webview/dist/', import.meta.url))
@@ -58,6 +61,14 @@ export function sendJson(res, value, status = 200) {
     'content-length': Buffer.byteLength(body),
   })
   res.end(body)
+}
+
+/** Reuse the DSH browser session for operations on its profile and configured adapters. */
+function requireModelOwner(ctx, req, res) {
+  const admission = ctx.get('connection')?.admit?.(req)
+  if (admission?.peer?.principal.kind === 'owner') return true
+  sendJson(res, { error: { message: '请在登录后的 DSH 页面使用模型设置' } }, admission?.rejection ?? 403)
+  return false
 }
 
 /** 读取请求体。 */
@@ -138,6 +149,20 @@ export async function resolveUpstreamAuth(ctx, baseURL) {
 
 /** 上游请求原样转发，鉴权换成 DSH 的账户凭据或 API Key；SSE 直接透传。 */
 async function proxyMessages(ctx, config, req, res) {
+  const selection = currentModel(ctx)
+  if (selection !== null && selection.provider !== ACCOUNT_PROVIDER) {
+    if (!requireModelOwner(ctx, req, res)) return
+    let options
+    try {
+      options = await llmRequest(ctx, selection, await readJsonBody(req))
+    } catch (error) {
+      sendJson(res, { error: { message: String(error?.message ?? error) } }, 400)
+      return
+    }
+    await streamConfiguredModel(ctx, options, res)
+    return
+  }
+
   const baseURL = config.baseURL || process.env.DEEPSEEK_BASE_URL || DEFAULT_BASE_URL
   const auth = await resolveUpstreamAuth(ctx, baseURL)
   if (auth === undefined) {
@@ -157,7 +182,7 @@ async function proxyMessages(ctx, config, req, res) {
       ...(typeof beta === 'string' && beta.length > 0 ? { 'anthropic-beta': beta } : {}),
       ...auth.headers,
     },
-    body,
+    body: accountMessageBody(body, selection),
   })
   if (!upstream.ok || upstream.body === null) {
     const text = await upstream.text().catch(() => '')
@@ -175,6 +200,11 @@ async function proxyMessages(ctx, config, req, res) {
 
 /** 附件上传转发：multipart 原样送到官方 Files API。 */
 async function proxyFiles(ctx, config, req, res, pathname) {
+  const selection = currentModel(ctx)
+  if (req.method === 'POST' && selection !== null && selection.provider !== ACCOUNT_PROVIDER) {
+    sendJson(res, { error: { message: '网页版的 DeepSeek 文件附件需要 DeepSeek 账号模型' } }, 400)
+    return
+  }
   const baseURL = config.baseURL || process.env.DEEPSEEK_BASE_URL || DEFAULT_BASE_URL
   const auth = await resolveUpstreamAuth(ctx, baseURL)
   if (auth === undefined) {
@@ -240,7 +270,7 @@ async function proxyTools(ctx, config, req, res, pathname) {
 }
 
 /** 自检：入口页、静态资源、一次真实生成。 */
-async function selfTest(ctx, config) {
+async function selfTest(ctx, config, selection) {
   const checks = []
   const add = (name, ok, detail) => checks.push({ name, ok, detail })
   try {
@@ -257,27 +287,42 @@ async function selfTest(ctx, config) {
   })()
   add('static', main !== undefined && fs.existsSync(path.join(DIST, main)), main ?? 'not found')
   try {
-    const baseURL = config.baseURL || process.env.DEEPSEEK_BASE_URL || DEFAULT_BASE_URL
-    const auth = await resolveUpstreamAuth(ctx, baseURL)
-    if (auth === undefined) throw new Error('没有可用的 DeepSeek 凭据：账户未登录且未配置 API Key')
-    const response = await fetch(`${apiRoot(baseURL)}/messages`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        accept: 'text/event-stream',
-        'anthropic-version': '2023-06-01',
-        ...auth.headers,
-      },
-      body: JSON.stringify({
-        model: auth.source === 'api-key' ? 'deepseek-chat' : 'deepseek-flash',
-        messages: [{ role: 'user', content: '只回复两个字：收到' }],
-        thinking: { type: 'disabled' },
-        stream: true,
-      }),
-      signal: AbortSignal.timeout(60_000),
-    })
-    const text = await response.text()
-    add('messages', response.ok && text.includes('message_stop'), `${response.status} · ${text.length} bytes`)
+    const request = {
+      model: 'deepseek-flash',
+      messages: [{ role: 'user', content: '只回复两个字：收到' }],
+      thinking: { type: 'disabled' },
+      stream: true,
+    }
+    const signal = AbortSignal.timeout(60_000)
+    if (selection !== null && selection.provider !== ACCOUNT_PROVIDER) {
+      const options = await llmRequest(ctx, selection, request)
+      const chunks = ctx.get('llm').stream({ ...options, signal })
+      for await (const chunk of chunks) {
+        if (chunk.type === 'finish') {
+          add('messages', ['stop', 'max-tokens'].includes(chunk.reason.kind), chunk.reason.kind)
+          break
+        }
+      }
+      if (!checks.some(check => check.name === 'messages')) add('messages', false, 'no finish event')
+    } else {
+      const baseURL = config.baseURL || process.env.DEEPSEEK_BASE_URL || DEFAULT_BASE_URL
+      const auth = await resolveUpstreamAuth(ctx, baseURL)
+      if (auth === undefined) throw new Error('没有可用的 DeepSeek 凭据：账户未登录且未配置 API Key')
+      if (auth.source === 'api-key') request.model = 'deepseek-chat'
+      const response = await fetch(`${apiRoot(baseURL)}/messages`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          accept: 'text/event-stream',
+          'anthropic-version': '2023-06-01',
+          ...auth.headers,
+        },
+        body: accountMessageBody(JSON.stringify(request), selection),
+        signal,
+      })
+      const text = await response.text()
+      add('messages', response.ok && text.includes('message_stop'), `${response.status} · ${text.length} bytes`)
+    }
   } catch (error) {
     add('messages', false, String(error?.message ?? error))
   }
@@ -326,6 +371,26 @@ export function createWebview(ctx, config, home) {
       return
     }
 
+    if (pathname === '/webchat/api/model/default') {
+      if (!requireModelOwner(ctx, req, res)) return
+      if (isGet) {
+        sendJson(res, { current: currentModel(ctx) })
+        return
+      }
+      if (method === 'PUT') {
+        if (req.headers['content-type']?.split(';', 1)[0] !== 'application/json') {
+          sendJson(res, { error: { message: '模型选择须使用 JSON' } }, 415)
+          return
+        }
+        try {
+          sendJson(res, { current: await saveDefaultModel(ctx, await readJsonBody(req)) })
+        } catch (error) {
+          sendJson(res, { error: { message: String(error?.message ?? error) } }, 400)
+        }
+        return
+      }
+    }
+
     // ---- 从 DSH 一次性导入 ----
     if (pathname === '/webchat/api/import/stage' && method === 'POST') {
       const body = await readJsonBody(req)
@@ -350,8 +415,10 @@ export function createWebview(ctx, config, home) {
       return
     }
     if (pathname === '/webchat/api/self-test' && isGet) {
+      const selection = currentModel(ctx)
+      if (selection !== null && selection.provider !== ACCOUNT_PROVIDER && !requireModelOwner(ctx, req, res)) return
       try {
-        sendJson(res, await selfTest(ctx, config))
+        sendJson(res, await selfTest(ctx, config, selection))
       } catch (error) {
         sendJson(res, { ok: false, error: String(error?.message ?? error) }, 500)
       }
