@@ -398,7 +398,7 @@ index c4594f8..92a3698 100644
    border: none;
    border-radius: 50%;
 diff --git a/src/components/chatInput/ChatInput.tsx b/src/components/chatInput/ChatInput.tsx
-index 7a66a71..33f85dd 100644
+index 7a66a71..be44fdc 100644
 --- a/src/components/chatInput/ChatInput.tsx
 +++ b/src/components/chatInput/ChatInput.tsx
 @@ -1,5 +1,6 @@
@@ -408,7 +408,12 @@ index 7a66a71..33f85dd 100644
  import {
    IconGlobeLanguageOutline14,
    IconPaperclipOutline16,
-@@ -12,10 +13,15 @@ import { useIsMobile } from '../../app/viewport.js'
+@@ -8,14 +9,20 @@ import {
+   IconThinkOutline14,
+ } from '../base/icons.js'
+ import { setSearch, setThinking, useSettings } from '../../services/settings.js'
++import { useDeepSeekSearchAvailable } from '../../services/dshSearch.js'
+ import { useIsMobile } from '../../app/viewport.js'
  import { sendMessage, stopReply, useChatStore } from '../../services/chat/store.js'
  import {
    addDraftFiles,
@@ -424,7 +429,7 @@ index 7a66a71..33f85dd 100644
    retryDraftAttachment,
    setDraftText,
    useDrafts,
-@@ -26,7 +32,7 @@ import { Tooltip } from '../base/Tooltip.js'
+@@ -26,7 +33,7 @@ import { Tooltip } from '../base/Tooltip.js'
  import { ensureApiKey } from '../settings/settingsDialogState.js'
  import { DragMask, useFileDrop } from './DragMask.js'
  import { showToast } from '../base/toastState.js'
@@ -433,7 +438,7 @@ index 7a66a71..33f85dd 100644
  import { DraftAttachments } from './DraftAttachments.js'
  import { useVoiceInput } from './useVoiceInput.js'
  import { VoiceButton } from './VoiceButton.js'
-@@ -34,6 +40,15 @@ import { Spectrum } from './Spectrum.js'
+@@ -34,6 +41,15 @@ import { Spectrum } from './Spectrum.js'
  import { useTranslate } from '../../i18n/index.js'
  import styles from './ChatInput.module.css'
  
@@ -449,7 +454,14 @@ index 7a66a71..33f85dd 100644
  /** 输入框：自适应高度的文本框 + 文件 + 深度思考与智能搜索开关 + 语音输入 + 发送 / 停止 */
  export const ChatInput = memo(function ChatInput({ sessionId }: { sessionId: string | null }) {
    // 切换目标时释放录音、转写和 DOM 状态；文字与附件由草稿服务保留。
-@@ -56,6 +71,8 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
+@@ -52,10 +68,14 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
+   const thinking = useSettings((state) => state.thinking)
+   const importingHistory = useChatStore((state) => state.importingHistory)
+   const isMobile = useIsMobile()
+-  const search = useSettings((state) => state.search)
++  const searchAvailable = useDeepSeekSearchAvailable()
++  const searchPreference = useSettings((state) => state.search)
++  const search = searchAvailable && searchPreference
    const fileInputRef = useRef<HTMLInputElement>(null)
    const textareaRef = useRef<HTMLTextAreaElement>(null)
    const togglesRef = useRef<HTMLDivElement>(null)
@@ -458,7 +470,7 @@ index 7a66a71..33f85dd 100644
  
    useLayoutEffect(() => {
      const toggles = togglesRef.current
-@@ -91,14 +108,164 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
+@@ -91,14 +111,164 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
      },
      [sessionId]
    )
@@ -626,7 +638,7 @@ index 7a66a71..33f85dd 100644
    const dragging = useFileDrop(acceptFiles)
  
    /** 转写结果插入到光标处，并把光标移到插入内容之后 */
-@@ -161,7 +328,13 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
+@@ -161,7 +331,13 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
          }
        }}
      >
@@ -641,7 +653,7 @@ index 7a66a71..33f85dd 100644
        <div className={styles.textareaWrapper}>
          <textarea
            ref={textareaRef}
-@@ -172,7 +345,11 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
+@@ -172,7 +348,11 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
            autoFocus={!isMobile}
            disabled={importingHistory}
            value={text}
@@ -654,7 +666,7 @@ index 7a66a71..33f85dd 100644
            onMouseDown={(event) => {
              // 首次点击时手动聚焦，避免 Safari 把整个页面滚到输入框位置。
              if (isMobile && event.button === 0 && document.activeElement !== event.currentTarget) {
-@@ -184,15 +361,11 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
+@@ -184,15 +364,11 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
                event.preventDefault()
                send()
@@ -673,7 +685,22 @@ index 7a66a71..33f85dd 100644
          />
          {recording && isMobile ? <Spectrum getAnalyser={voice.getAnalyser} /> : null}
          <div className={styles.mirror} aria-hidden>
-@@ -228,6 +401,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
+@@ -214,12 +390,13 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
+               <span className={styles.toggleLabel}>{t('thinkingSwitch')}</span>
+             </button>
+           </Tooltip>
+-          <Tooltip content={t('deactivatedSearchTooltip')}>
++          <Tooltip content={t(searchAvailable ? 'deactivatedSearchTooltip' : 'dshSearchUnavailable')}>
+             <button
+               type="button"
+               className={clsx(styles.toggle, search && styles.selected)}
+               aria-label={t('search')}
+               aria-pressed={search}
++              disabled={!searchAvailable}
+               onClick={() => setSearch(!search)}
+             >
+               <IconGlobeLanguageOutline14 />
+@@ -228,6 +405,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
            </Tooltip>
          </div>
          <div className={styles.right}>
@@ -3426,7 +3453,7 @@ index 0000000..77baab0
 +
 +export const consumeScrollTarget = () => useSessionSearch.setState({ pending: null })
 diff --git a/src/i18n/en.ts b/src/i18n/en.ts
-index 2d49027..a8b56bf 100644
+index 2d49027..8e1f055 100644
 --- a/src/i18n/en.ts
 +++ b/src/i18n/en.ts
 @@ -5,6 +5,10 @@ export const en = {
@@ -3512,7 +3539,15 @@ index 2d49027..a8b56bf 100644
    unknownError: 'Unknown error',
    replyRefused: "Sorry, that's beyond my current scope. Let's talk about something else.",
    messageThinkDuration: 'Thought for {count} second',
-@@ -155,6 +191,10 @@ export const en = {
+@@ -142,6 +178,7 @@ export const en = {
+   deactivatedThinkTooltip: 'Think before responding to solve reasoning problems',
+   thinkingSwitch: 'DeepThink',
+   deactivatedSearchTooltip: 'Search the web when necessary',
++  dshSearchUnavailable: 'Web search is available with DeepSeek account models',
+   search: 'Search',
+   uploadFile: 'Upload files',
+   chatInputStopButtonTooltip: 'Stop',
+@@ -155,6 +192,10 @@ export const en = {
    uploadDeleteFiles: 'Delete files',
    dragFileToUpload: 'Drop files here to upload',
    dragFileDesc: 'Up to {count} files, {size} MB each',
@@ -3523,13 +3558,13 @@ index 2d49027..a8b56bf 100644
    voiceInput: 'Voice input',
    voiceInputTimer: 'Recording {seconds}s',
    voiceInputStop: 'Stop recording and transcribe',
-@@ -179,3 +219,4 @@ export const en = {
+@@ -179,3 +220,4 @@ export const en = {
    settingsLocaleZhCN: 'Simplified Chinese',
    settingsLocaleEnUS: 'English',
  } satisfies Record<keyof typeof zh, string>
 +
 diff --git a/src/i18n/zh.ts b/src/i18n/zh.ts
-index d99f058..13c1b23 100644
+index d99f058..c7a05e0 100644
 --- a/src/i18n/zh.ts
 +++ b/src/i18n/zh.ts
 @@ -3,6 +3,10 @@ export const zh = {
@@ -3612,7 +3647,7 @@ index d99f058..13c1b23 100644
    unknownError: '未知错误',
    replyRefused: '你好，这个问题我暂时无法回答，让我们换个话题再聊聊吧。',
    messageThinkDuration: '已思考（用时 {count} 秒）',
-@@ -130,7 +166,7 @@ export const zh = {
+@@ -130,10 +166,11 @@ export const zh = {
      '上传的文件包含暂未支持的文件格式，请转换文件格式后重试。支持 PDF、DOC、XLSX、PPT、图片、文本、代码等。',
    uploadFileStatusFailed: '上传失败',
    uploadRetry: '{message}，点击重试',
@@ -3621,7 +3656,11 @@ index d99f058..13c1b23 100644
    deactivatedThinkTooltip: '先思考后回答，解决推理问题',
    thinkingSwitch: '深度思考',
    deactivatedSearchTooltip: '按需搜索网页',
-@@ -147,6 +183,10 @@ export const zh = {
++  dshSearchUnavailable: '网页版智能搜索适用于 DeepSeek 账号模型',
+   search: '智能搜索',
+   uploadFile: '上传文件',
+   chatInputStopButtonTooltip: '停止生成',
+@@ -147,6 +184,10 @@ export const zh = {
    uploadDeleteFiles: '删除文件',
    dragFileToUpload: '文件拖动到此处即可上传',
    dragFileDesc: '最多 {count} 个，每个 {size}MB',
@@ -4041,10 +4080,10 @@ index 8540bb1..6271eb2 100644
      const key =
        diff <= 0
 diff --git a/src/services/chat/store.ts b/src/services/chat/store.ts
-index 32e74a5..10a011a 100644
+index 32e74a5..19fdade 100644
 --- a/src/services/chat/store.ts
 +++ b/src/services/chat/store.ts
-@@ -2,7 +2,12 @@ import { create } from 'zustand'
+@@ -2,8 +2,14 @@ import { create } from 'zustand'
  import { createId } from '../../utils/id.js'
  import { ApiError, streamMessage } from '../api/client.js'
  import type { ChatModel, CreateMessageRequest } from '../api/types.js'
@@ -4056,9 +4095,11 @@ index 32e74a5..10a011a 100644
 +  isRetryableApiError,
 +} from '../api/errors.js'
  import { cancelUpload, describeUploadError, uploadAttachment, useUploads } from '../attachments.js'
++import { canUseDeepSeekSearch } from '../dshSearch.js'
  import { useSettings } from '../settings.js'
  import { appendBranch, getVisibleMessages, normalizeSession, selectVersion } from './branches.js'
-@@ -288,6 +293,28 @@ const settleInterrupted = (session: Session): Session => {
+ import * as db from './db.js'
+@@ -288,6 +294,28 @@ const settleInterrupted = (session: Session): Session => {
    }
  }
  
@@ -4087,7 +4128,7 @@ index 32e74a5..10a011a 100644
  export const initChat = (): Promise<void> => {
    if (get().ready) {
      return Promise.resolve()
-@@ -299,6 +326,7 @@ export const initChat = (): Promise<void> => {
+@@ -299,6 +327,7 @@ export const initChat = (): Promise<void> => {
    set({ initError: false })
    initTask = (async () => {
      try {
@@ -4095,7 +4136,7 @@ index 32e74a5..10a011a 100644
        const summaries = await db.loadSessionSummaries()
        if (epoch === historyEpoch) {
          set({ ready: true, sessions: sortSessions(summaries) })
-@@ -477,6 +505,92 @@ export const renameSession = (id: string, title: string) => {
+@@ -477,6 +506,92 @@ export const renameSession = (id: string, title: string) => {
    }
  }
  
@@ -4188,7 +4229,26 @@ index 32e74a5..10a011a 100644
  /**
   * 删除会话；本地原件仅在没有其他会话引用时清理。远端文件不删：导入、编辑、重新生成都会复用同一个附件，
   * 同一服务端文件可能被多个会话引用，不维护引用计数。
-@@ -1064,12 +1178,46 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
+@@ -986,7 +1101,8 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
+         const latestReminder = prepared.prefix
+           ? prepared.prefix.latestReminder
+           : createLatestReminder(useSettings.getState())
+-        reply = { ...reply, latestReminder }
++        const search = canUseDeepSeekSearch() && (initial.search ?? false)
++        reply = { ...reply, latestReminder, search }
+         updateReply(sessionId, reply)
+         persist(sessionId)
+         const messages = toRequestMessages(
+@@ -1004,7 +1120,7 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
+             messages,
+             thinking: { type: initial.thinking ? 'enabled' : 'disabled' },
+             safety_check: SAFETY_CHECK,
+-            tools: serverTools(initial.search ?? false),
++            tools: serverTools(search),
+             ...(titleRequests.has(controller) ? { title: { enabled: true } } : {}),
+           },
+           controller.signal
+@@ -1064,12 +1180,46 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
            // 已收到 message_delta 的结束原因，只是缺了结尾的 message_stop
            reply = settleReply(reply, 'done', Date.now())
          } else if (error instanceof ApiError) {
@@ -4277,6 +4337,28 @@ index e0df097..f76f67a 100644
    updatedAt: session.updatedAt,
 +  ...(session.pinned === true ? { pinned: true } : {}),
  })
+diff --git a/src/services/dshSearch.ts b/src/services/dshSearch.ts
+new file mode 100644
+index 0000000..4ba454f
+--- /dev/null
++++ b/src/services/dshSearch.ts
+@@ -0,0 +1,16 @@
++import { useSyncExternalStore } from 'react'
++
++const unavailableAttribute = 'data-dsh-search-unavailable'
++
++/** DSH updates this attribute when the selected provider changes. */
++export const canUseDeepSeekSearch = () =>
++  !document.documentElement.hasAttribute(unavailableAttribute)
++
++const subscribe = (onChange: () => void) => {
++  const observer = new MutationObserver(onChange)
++  observer.observe(document.documentElement, { attributeFilter: [unavailableAttribute] })
++  return () => observer.disconnect()
++}
++
++export const useDeepSeekSearchAvailable = () =>
++  useSyncExternalStore(subscribe, canUseDeepSeekSearch)
 diff --git a/src/services/speech/recorder.ts b/src/services/speech/recorder.ts
 index a892f10..92bd14f 100644
 --- a/src/services/speech/recorder.ts

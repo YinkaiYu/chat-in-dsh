@@ -47,7 +47,7 @@ test('模型选择使用 DSH 默认值，并通过 DSH 验证保存', async () =
   assert.deepEqual(JSON.parse((await request(handler, route)).text), { current })
 })
 
-test('发送消息使用当前 DSH 模型，转发原提示词并转回网页版 SSE', async () => {
+test('第三方 DSH 模型忽略 DeepSeek 搜索工具，转发原提示词并返回 SSE', async () => {
   const services = {
     connection: { admit: req => req.admission },
     agentDefaultModel: { currentSelection: () => mockModel },
@@ -71,7 +71,11 @@ test('发送消息使用当前 DSH 模型，转发原提示词并转回网页版
   }
   const handler = createWebview({ get: name => services[name] }, {}, '.')
   const path = '/webchat/anthropic/v1/messages'
-  const body = { system: '原始提示词', messages: [{ role: 'user', content: '你好' }] }
+  const body = {
+    system: '原始提示词',
+    messages: [{ role: 'user', content: '你好' }],
+    tools: [{ type: 'deepseek_web_search', name: 'deepseek_web_search' }],
+  }
   const denied = await request(handler, path, { method: 'POST', body, admission: { rejection: 403 } })
   assert.equal(denied.status, 403)
   const result = await request(handler, path, { method: 'POST', body })

@@ -200,6 +200,13 @@ window.__ModuleLoader__.load({
         const closeFromFrame = () => document.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
         const resize = new ResizeObserver(schedule)
         const mutations = new MutationObserver(schedule)
+        const updateSearchSupport = () => {
+          const current = directory.store.getSnapshot().current
+          doc?.documentElement?.toggleAttribute(
+            'data-dsh-search-unavailable', current !== null && current.provider !== 'deepseek-account',
+          )
+        }
+        const stopSearchSync = directory.store.subscribe(updateSearchSupport)
         const detachDocument = () => {
           mutations.disconnect()
           doc?.removeEventListener('scroll', schedule, true)
@@ -209,6 +216,7 @@ window.__ModuleLoader__.load({
           detachDocument()
           doc = iframe.contentDocument
           if (!doc?.body) return
+          updateSearchSupport()
           mutations.observe(doc.body, { childList: true, subtree: true })
           doc.addEventListener('scroll', schedule, true)
           doc.addEventListener('mousedown', closeFromFrame, true)
@@ -222,13 +230,14 @@ window.__ModuleLoader__.load({
         return () => {
           if (tick !== 0) cancelAnimationFrame(tick)
           resize.disconnect()
+          stopSearchSync()
           detachDocument()
           iframe.removeEventListener('load', attachDocument)
           window.removeEventListener('resize', schedule)
           window.removeEventListener('scroll', schedule, true)
           if (anchor) anchor.hidden = true
         }
-      }, [iframe, NativePicker])
+      }, [iframe, NativePicker, directory])
 
       if (!NativePicker || !position) return null
       const locale = ctx.get('locale')

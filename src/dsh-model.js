@@ -39,9 +39,8 @@ export function accountMessageBody(body, selection) {
 
 /** Translate the webview's existing prompt and message history for a DSH adapter. */
 export function toLlmRequest(selection, request) {
-  if (request.tools?.some(tool => tool.type === 'deepseek_web_search')) {
-    throw new Error('网页版智能搜索需要 DeepSeek 账号模型，请关闭智能搜索或切换模型')
-  }
+  // The webview's DeepSeek server tools belong to the native account route.
+  // A stale search preference must not prevent a text call to a DSH adapter.
   const messages = []
   let reminder
   for (const { role, content } of request.messages) {
