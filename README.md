@@ -92,7 +92,7 @@
 
 配好之后：
 
-- 打开 `/webchat/settings` 就是模型选择页，选一项点「保存」，之后的对话立刻走那个模型；
+- 面板顶部有一条模型选择条，下拉切换后立刻生效（`/webchat/settings` 是同一个选择的完整设置页）；
 - 脚本里可以用 `GET /webchat/api/models` 看目录与当前选择，`POST /webchat/api/models {"id":"..."}` 切换；
 - 选择落在 `$DSH_HOME/chat-in-dsh/model-state.json`，删掉这个文件就回到 `defaultModel`。
 

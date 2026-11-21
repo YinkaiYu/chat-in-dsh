@@ -90,7 +90,7 @@ exactly as before. To point the panel at a different model, give it a model cata
     defaultModel: deepseek-flash
 ```
 
-Then open `/webchat/settings` to pick a model and press Save; the next reply uses it. Scripts can use
+The panel header has a model picker — switching takes effect immediately (`/webchat/settings` is the full settings page for the same selection). Scripts can use
 `GET /webchat/api/models` for the catalog and selection, and `POST /webchat/api/models {"id":"..."}` to switch.
 The selection lives in `$DSH_HOME/chat-in-dsh/model-state.json`; delete that file to fall back to `defaultModel`.
 
