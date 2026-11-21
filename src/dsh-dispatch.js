@@ -130,9 +130,15 @@ export async function proxyDshDispatch(ctx, rawBody, res, { provider, model, rea
   res.on('close', () => {
     if (!res.writableEnded) controller.abort()
   })
+  const config = {
+    provider,
+    model,
+    ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+    ...input,
+  }
   let prepared
   try {
-    prepared = await ctx.llm.prepareCall(provider, model, controller.signal)
+    prepared = await ctx.llm.prepareCall(config, controller.signal)
   } catch (error) {
     const message = String(error?.message ?? error)
     res.writeHead(502, { 'content-type': 'application/json; charset=utf-8' })
@@ -142,15 +148,12 @@ export async function proxyDshDispatch(ctx, rawBody, res, { provider, model, rea
     }))
     return
   }
-  const options = {
-    provider,
-    model,
-    ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
-    ...input,
-    signal: controller.signal,
-  }
   try {
-    await pipeDshStream(prepared.stream(options), res, { model: `${provider}/${model}`, thinking })
+    await pipeDshStream(
+      prepared.stream({ ...prepared.config, signal: controller.signal }),
+      res,
+      { model: `${provider}/${model}`, thinking }
+    )
   } catch (error) {
     if (!res.headersSent) {
       const message = String(error?.message ?? error)
@@ -179,12 +182,15 @@ export async function selfTestDshDispatch(ctx, entry) {
     return controller.signal
   }
   try {
-    const prepared = await ctx.llm.prepareCall(provider, model, timeout(60_000))
-    const stream = prepared.stream({
+    const config = {
       provider,
       model,
       messages: [{ role: 'user', content: [{ type: 'text', text: '只回复两个字：收到' }] }],
-      maxTokens: 16,
+      maxTokens: 64,
+    }
+    const prepared = await ctx.llm.prepareCall(config, timeout(60_000))
+    const stream = prepared.stream({
+      ...prepared.config,
       signal: timeout(120_000),
     })
     let text = ''
