@@ -18,7 +18,7 @@ import { DEFAULT_BASE_URL, TOKEN_HEADER, apiRoot, isInside } from './protocol.js
 import { ackPending, listPending, readDshSession, stageImport } from './dsh-import.js'
 import { createModelRegistry } from './models.js'
 import { listDshModels } from './dsh-models.js'
-import { proxyDshDispatch } from './dsh-dispatch.js'
+import { proxyDshDispatch, selfTestDshDispatch } from './dsh-dispatch.js'
 import { createAnthropicStream, toAnthropicMessage, toOpenAIRequest } from './openai-bridge.js'
 
 /** 构建产物位置（包内自带，安装即可用）。 */
@@ -444,7 +444,10 @@ async function selfTest(ctx, config, registry) {
   const entry = registry.active()
   add('model', true, `${entry.id} · ${entry.api}`)
   try {
-    if (entry.api === 'openai') {
+    if (entry.api === 'dsh' && typeof entry.provider === 'string') {
+      const result = await selfTestDshDispatch(ctx, entry)
+      add('messages', result.ok, result.detail)
+    } else if (entry.api === 'openai') {
       const result = await selfTestOpenAI(ctx, entry)
       add('messages', result.ok, result.detail)
     } else {
