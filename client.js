@@ -2,6 +2,7 @@
  * 浏览器半边。
  *
  * 一个入口：左侧面板列表里的「网页版」。
+ * 面板顶部挂一条模型选择条（目录来自插件配置，不配 models 时只显示官方 DeepSeek 一项）。
  * 另外在会话的右键菜单里加一行「导入到网页版」——一次性复制，复制完两边各管各的。
  */
 window.__ModuleLoader__.load({
@@ -90,8 +91,104 @@ window.__ModuleLoader__.load({
         importBus.listeners.add(listener)
         return () => importBus.listeners.delete(listener)
       }, [])
-      return h('div', { style: { height: '100%', minHeight: 320, display: 'flex' } },
-        h('div', { style: { flex: 1, minWidth: 0 } }, frame(token, '/webchat/', 'DeepSeek 网页版')))
+      return h('div', { style: { height: '100%', minHeight: 320, display: 'flex', flexDirection: 'column' } },
+        h(ModelBar, null),
+        h('div', { style: { flex: 1, minWidth: 0, minHeight: 0 } }, frame(token, '/webchat/', 'DeepSeek 网页版')))
+    }
+
+    /** 面板顶部模型选择条：与 DSH 聊天框同一份目录（provider 分组），切换后立刻生效。 */
+    function ModelBar() {
+      const [state, setState] = React.useState({ groups: [], models: [], active: '', loading: true, dsh: false })
+      const [saving, setSaving] = React.useState(false)
+      const load = React.useCallback(() => {
+        // 先读 DSH 同一份目录（与 DSH 聊天框同源）；失败回退插件 models 配置。
+        fetch('/webchat/api/dsh-models')
+          .then((response) => response.json())
+          .then((body) => {
+            if (body?.ok && Array.isArray(body.groups) && body.groups.length > 0) {
+              const groups = body.groups
+              const flat = []
+              for (const group of groups) {
+                for (const model of group.models ?? []) {
+                  flat.push({ id: `${group.id}/${model.id}`, label: model.name, provider: group.name })
+                }
+              }
+              const def = body.default
+              const defId = def ? `${def.provider}/${def.model}` : (flat[0]?.id ?? '')
+              setState({ groups, models: flat, active: defId, loading: false, dsh: true })
+              return
+            }
+            throw new Error(body?.error ?? '无 DSH 目录')
+          })
+          .catch(() => fetch('/webchat/api/models')
+            .then((response) => response.json())
+            .then((body) => setState({
+              groups: [],
+              models: Array.isArray(body?.models) ? body.models : [],
+              active: typeof body?.active === 'string' ? body.active : '',
+              loading: false,
+              dsh: false,
+            }))
+            .catch(() => setState((previous) => ({ ...previous, loading: false }))))
+      }, [])
+      React.useEffect(() => { load() }, [load])
+      const onChange = (event) => {
+        const id = event.target.value
+        if (!id || id === state.active || saving) return
+        setSaving(true)
+        fetch('/webchat/api/models', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ id }),
+        })
+          .then((response) => response.json())
+          .then((body) => {
+            if (body?.ok) setState((previous) => ({ ...previous, active: body.active }))
+          })
+          .catch(() => {})
+          .finally(() => setSaving(false))
+      }
+      const barStyle = {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '6px 10px',
+        borderBottom: '1px solid #e5e7eb',
+        background: '#fff',
+        fontSize: 12,
+        color: '#6b7280',
+        flex: 'none',
+      }
+      const selectStyle = {
+        font: 'inherit',
+        maxWidth: '100%',
+        padding: '2px 6px',
+        borderRadius: 6,
+        border: '1px solid #d0d7de',
+        background: '#fff',
+        color: '#1f2328',
+      }
+      const label = state.models.length === 0
+        ? '模型'
+        : (state.models.find((item) => item.id === state.active)?.label ?? state.active)
+      return h('div', { style: barStyle, title: '网页版使用哪个模型（与 DSH 聊天框同一份目录）' },
+        h('span', null, '模型'),
+        h('select', {
+          value: state.active,
+          onChange,
+          disabled: state.loading || saving || state.models.length === 0,
+          style: selectStyle,
+          'aria-label': '网页版使用哪个模型',
+        }, state.groups.length > 0
+          ? state.groups.map((group) => h('optgroup', { key: group.id, label: group.name },
+            (group.models ?? []).map((model) => h('option', { key: `${group.id}/${model.id}`, value: `${group.id}/${model.id}` }, model.name))))
+          : state.models.map((item) => h('option', { key: item.id, value: item.id },
+            `${item.label ?? item.id}${item.default ? '（默认）' : ''}`))),
+        saving ? h('span', null, '切换中…') : null,
+        !state.loading && state.models.length > 1
+          ? h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, `当前：${label}`)
+          : null,
+        state.dsh ? h('span', { style: { color: '#9ca3af' } }, '与 DSH 聊天框同款目录') : null)
     }
 
     /** 会话菜单里的图标：一个"导入到托盘"的线性图标，风格对齐宿主其它条目。 */

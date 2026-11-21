@@ -66,6 +66,43 @@ After collapsing, you get the full web experience:
 
 The panel has its own conversation list, separate from DSH sessions.
 
+## Use another model (optional)
+
+Defaults are untouched: the panel header lists the **same model catalog as the DSH composer**
+(provider groups, same source and order), and the selection dispatches through DSH providers —
+no extra configuration needed.
+
+Only when the host has no model catalog (or you want a few pinned entries) do you need a fallback
+`models` catalog in the plugin config (omit `models` and you are back to the official single entry):
+
+```yaml
+- id: chat-in-dsh
+  name: chat-in-dsh
+  config:
+    models:
+      - id: deepseek-flash          # the model id the panel shows
+        label: DeepSeek web
+        api: anthropic              # Anthropic Messages protocol, passed through
+        baseURL: https://api.deepseek.com/anthropic
+      - id: glm-5.3-flash
+        label: GLM 5.3 Flash
+        api: openai                 # OpenAI Chat Completions, translated by the host
+        baseURL: http://127.0.0.1:18088/openai/v1
+        apiKeyEnv: BIFROST_VIRTUAL_KEY
+        upstreamModel: agent2api/glm-5.3-flash
+    defaultModel: deepseek-flash
+```
+
+The panel header has a model picker — switching takes effect immediately (`/webchat/settings` is the full settings page for the same selection). Scripts can use
+`GET /webchat/api/models` for the catalog and selection, and `POST /webchat/api/models {"id":"..."}` to switch.
+The selection lives in `$DSH_HOME/chat-in-dsh/model-state.json`; delete that file to fall back to `defaultModel`.
+
+Both protocols work: `api: anthropic` entries are proxied verbatim (only the model id in the request body is
+replaced), `api: openai` entries are translated to `chat.completions` and the chunk stream is translated back
+into Anthropic events (reasoning becomes a thinking block), so the bundled UI needs no rebuild. Keys are only
+read from DSH credentials or the environment variable named by `apiKeyEnv`; the browser never holds one.
+Attachments still go through the official Files API, so they are unavailable while a non-official model is selected.
+
 ## Bring conversations in
 
 **From the DeepSeek website**

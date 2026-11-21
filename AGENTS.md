@@ -14,7 +14,11 @@
 | 路由 | `src/webview.js` | 静态产物、`/webchat/api/*` 自检与导入接口、Messages / Files 转发 |
 | 约定 | `src/protocol.js` | 端点根、令牌头、路径越界判断（纯函数，有测试） |
 | 导入 | `src/dsh-import.js` | 只读解析 DSH 会话日志 → chat-demo 格式；暂存与确认（纯函数，有测试） |
-| 界面 | `client.js` | 左侧面板两个槽位（`main` + `sidebar.panellist`）与会话右键菜单贡献（`contextMenus`） |
+| 模型目录 | `src/models.js` | 插件配置里的模型目录、当前选择与状态文件 + DSH 目录合并（`fromDshEntry`/`mergeDshCatalog`，纯逻辑，有测试） |
+| DSH 目录 | `src/dsh-models.js` | 经 `ctx.llm` 取 DSH 同一份目录（与 DSH 聊天框同源；无 llm 服务时回退插件目录） |
+| DSH 派发 | `src/dsh-dispatch.js` | 网页版请求 → DSH `prepareCall` + `stream`，块流翻回 Anthropic SSE（`provider/model` 选择） |
+| 协议桥 | `src/openai-bridge.js` | Anthropic 请求 → `chat.completions`，分块流翻回 Anthropic SSE（纯函数，有测试） |
+| 界面 | `client.js` | 左侧面板两个槽位（`main` + `sidebar.panellist`）、面板顶部模型选择条（`ModelBar`）与会话右键菜单贡献（`contextMenus`） |
 | 前端 | `webview/dist` | 官方 chat-demo 构建产物，随仓库分发 |
 
 上游基准：`8ad7b56e196b87d8a3215dc09476d6d146ad3f0e`（chat-demo v0.1.3，MIT）。补丁在
@@ -29,7 +33,11 @@
 ## 命令
 
 ```bash
-node --test test/protocol.test.js test/dsh-import.test.js
+node --test test/protocol.test.js test/dsh-import.test.js test/webview-auth.test.js \
+  test/models.test.js test/openai-bridge.test.js test/webview-models.test.js test/dsh-models.test.js
+node test/live-e2e.mjs             # 真上游端到端：需要 BIFROST_VIRTUAL_KEY（做法见下）
+node test/profile-e2e.mjs          # 真实 profile 验证：跑在运行中的 dsh web 上，需要 DSH_WEB_TOKEN
+node test/ui-e2e.mjs               # 真实浏览器验证：CDP 点设置页切模型再对话，需要 DSH_WEB_TOKEN
 pwsh scripts/build-webview.ps1     # 克隆上游、打补丁、构建、同步 webview/dist
 ```
 
@@ -38,7 +46,8 @@ pwsh scripts/build-webview.ps1     # 克隆上游、打补丁、构建、同步 
 
 ## 硬约束
 
-1. **一个入口**：只有左侧面板。不要加模型路由、不要加 `conversation.view`、不要做会话双向同步——这是产品决定，不是待办。
+1. **一个入口**：只有左侧面板。不要在面板里加 DSH 的模型路由、不要加 `conversation.view`、不要做会话双向同步——这是产品决定，不是待办。
+   例外是「面板自己用哪个上游模型」：见下面「模型目录」一节，那是宿主转发层的选择，与 DSH 的模型路由无关。
 2. **网页版独立存储**：用上游自带的本地存储；只有「导入」这一次性复制会从 DSH 读数据。
 3. **不发明提示词**：浏览器构造请求体，宿主只转发。
 4. **密钥不出宿主**：浏览器不持有 API Key；`BOOTSTRAP` 注入的只是让上游放行的占位值。
@@ -46,7 +55,13 @@ pwsh scripts/build-webview.ps1     # 克隆上游、打补丁、构建、同步 
 
 ## 验证
 
-- `GET /webchat/api/self-test`：入口页、静态资源、一次真实生成，三项全绿。
+- `GET /webchat/api/self-test`：入口页、静态资源、当前模型、一次真实生成，四项全绿（第三项 detail 里带选中模型）。
+- 模型目录：没配 `models` 时 `/webchat/models` 必须还是 `deepseek-flash` 单项，请求体原样转发（`test/webview-models.test.js` 里
+  有「默认目录不改写模型名」一条盯着）。配了目录后：`/webchat/settings` 能选、`/webchat/api/models` 能切、状态文件落在
+  `$DSH_HOME/chat-in-dsh/model-state.json`；`api: openai` 的目录项走 `src/openai-bridge.js`，思考内容要变成 thinking 块。
+- 真上游端到端：`node test/live-e2e.mjs --model agent2api/glm-5.3-flash --base http://127.0.0.1:18088/openai/v1`，
+  它会用 profile 里的 `BIFROST_VIRTUAL_KEY`（环境变量或 `~/.dsh/bifrost.env`）起一个临时端口，验证列表/切换/真实回答/自检/设置页，
+  证据写到 `--out`。没有真 Key 时不要用打桩结果冒充验证。
 - 槽位：`main` / `sidebar.panellist` 有 `chat-demo`；会话菜单走 `contextMenus` 贡献，所以旧插槽 `sidebar.workspaces.session.menu.item` 应当是空的；`conversation.view` 里**不应**出现。
 - 菜单样式：会话右键菜单里的「导入到网页版」必须和置顶、重命名等原生条目等高同字号——新加菜单项一律用 `ctx.contextMenus.register`，不要往旧插槽塞自定义按钮。
 - 导入：右键任意会话 →「导入到网页版」→ `GET /webchat/api/import/pending` 返回该会话 → 网页版启动时写入并 `ack`。
