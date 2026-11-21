@@ -67,6 +67,40 @@
 
 面板里有自己的会话列表，和 DSH 的会话分开管理。
 
+## 换用其他模型（可选）
+
+默认什么都不用配：面板把请求转发给官方 DeepSeek，和之前完全一样。如果想把面板接到别的模型上，
+在插件配置里给一份模型目录即可（`models` 省略时仍是官方单项）：
+
+```yaml
+- id: chat-in-dsh
+  name: chat-in-dsh
+  config:
+    models:
+      - id: deepseek-flash          # 面板里显示的模型名
+        label: DeepSeek 网页版
+        api: anthropic              # Anthropic Messages 协议，直通
+        baseURL: https://api.deepseek.com/anthropic
+      - id: glm-5.3-flash
+        label: GLM 5.3 Flash
+        api: openai                 # OpenAI Chat Completions 协议，由宿主翻译
+        baseURL: http://127.0.0.1:18088/openai/v1
+        apiKeyEnv: BIFROST_VIRTUAL_KEY
+        upstreamModel: agent2api/glm-5.3-flash
+    defaultModel: deepseek-flash
+```
+
+配好之后：
+
+- 打开 `/webchat/settings` 就是模型选择页，选一项点「保存」，之后的对话立刻走那个模型；
+- 脚本里可以用 `GET /webchat/api/models` 看目录与当前选择，`POST /webchat/api/models {"id":"..."}` 切换；
+- 选择落在 `$DSH_HOME/chat-in-dsh/model-state.json`，删掉这个文件就回到 `defaultModel`。
+
+两种协议都支持：`api: anthropic` 的目录项按原样直通（只把请求体里的模型名换成选中的），
+`api: openai` 的目录项由宿主把请求翻成 `chat.completions`、再把分块流翻回 Anthropic 事件
+（思考内容翻成 thinking 块），所以网页版界面不用改。Key 只从 DSH 凭据或 `apiKeyEnv` 指向的
+环境变量里取，浏览器始终不持有它。附件上传仍走官方 Files API，因此换到非官方模型时附件不可用。
+
 ## 把对话搬进来
 
 **从 DeepSeek 官网搬**
