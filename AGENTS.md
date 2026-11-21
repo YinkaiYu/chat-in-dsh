@@ -14,7 +14,9 @@
 | 路由 | `src/webview.js` | 静态产物、`/webchat/api/*` 自检与导入接口、Messages / Files 转发 |
 | 约定 | `src/protocol.js` | 端点根、令牌头、路径越界判断（纯函数，有测试） |
 | 导入 | `src/dsh-import.js` | 只读解析 DSH 会话日志 → chat-demo 格式；暂存与确认（纯函数，有测试） |
-| 模型目录 | `src/models.js` | 插件配置里的模型目录、当前选择与状态文件（纯逻辑，有测试） |
+| 模型目录 | `src/models.js` | 插件配置里的模型目录、当前选择与状态文件 + DSH 目录合并（`fromDshEntry`/`mergeDshCatalog`，纯逻辑，有测试） |
+| DSH 目录 | `src/dsh-models.js` | 经 `ctx.llm` 取 DSH 同一份目录（与 DSH 聊天框同源；无 llm 服务时回退插件目录） |
+| DSH 派发 | `src/dsh-dispatch.js` | 网页版请求 → DSH `prepareCall` + `stream`，块流翻回 Anthropic SSE（`provider/model` 选择） |
 | 协议桥 | `src/openai-bridge.js` | Anthropic 请求 → `chat.completions`，分块流翻回 Anthropic SSE（纯函数，有测试） |
 | 界面 | `client.js` | 左侧面板两个槽位（`main` + `sidebar.panellist`）、面板顶部模型选择条（`ModelBar`）与会话右键菜单贡献（`contextMenus`） |
 | 前端 | `webview/dist` | 官方 chat-demo 构建产物，随仓库分发 |
@@ -32,7 +34,7 @@
 
 ```bash
 node --test test/protocol.test.js test/dsh-import.test.js test/webview-auth.test.js \
-  test/models.test.js test/openai-bridge.test.js test/webview-models.test.js
+  test/models.test.js test/openai-bridge.test.js test/webview-models.test.js test/dsh-models.test.js
 node test/live-e2e.mjs             # 真上游端到端：需要 BIFROST_VIRTUAL_KEY（做法见下）
 node test/profile-e2e.mjs          # 真实 profile 验证：跑在运行中的 dsh web 上，需要 DSH_WEB_TOKEN
 node test/ui-e2e.mjs               # 真实浏览器验证：CDP 点设置页切模型再对话，需要 DSH_WEB_TOKEN

@@ -96,19 +96,40 @@ window.__ModuleLoader__.load({
         h('div', { style: { flex: 1, minWidth: 0, minHeight: 0 } }, frame(token, '/webchat/', 'DeepSeek 网页版')))
     }
 
-    /** 面板顶部模型选择条：目录来自插件配置，切换后立刻生效。 */
+    /** 面板顶部模型选择条：与 DSH 聊天框同一份目录（provider 分组），切换后立刻生效。 */
     function ModelBar() {
-      const [state, setState] = React.useState({ models: [], active: '', loading: true })
+      const [state, setState] = React.useState({ groups: [], models: [], active: '', loading: true, dsh: false })
       const [saving, setSaving] = React.useState(false)
       const load = React.useCallback(() => {
-        fetch('/webchat/api/models')
+        // 先读 DSH 同一份目录（与 DSH 聊天框同源）；失败回退插件 models 配置。
+        fetch('/webchat/api/dsh-models')
           .then((response) => response.json())
-          .then((body) => setState({
-            models: Array.isArray(body?.models) ? body.models : [],
-            active: typeof body?.active === 'string' ? body.active : '',
-            loading: false,
-          }))
-          .catch(() => setState((previous) => ({ ...previous, loading: false })))
+          .then((body) => {
+            if (body?.ok && Array.isArray(body.groups) && body.groups.length > 0) {
+              const groups = body.groups
+              const flat = []
+              for (const group of groups) {
+                for (const model of group.models ?? []) {
+                  flat.push({ id: `${group.id}/${model.id}`, label: model.name, provider: group.name })
+                }
+              }
+              const def = body.default
+              const defId = def ? `${def.provider}/${def.model}` : (flat[0]?.id ?? '')
+              setState({ groups, models: flat, active: defId, loading: false, dsh: true })
+              return
+            }
+            throw new Error(body?.error ?? '无 DSH 目录')
+          })
+          .catch(() => fetch('/webchat/api/models')
+            .then((response) => response.json())
+            .then((body) => setState({
+              groups: [],
+              models: Array.isArray(body?.models) ? body.models : [],
+              active: typeof body?.active === 'string' ? body.active : '',
+              loading: false,
+              dsh: false,
+            }))
+            .catch(() => setState((previous) => ({ ...previous, loading: false }))))
       }, [])
       React.useEffect(() => { load() }, [load])
       const onChange = (event) => {
@@ -150,7 +171,7 @@ window.__ModuleLoader__.load({
       const label = state.models.length === 0
         ? '模型'
         : (state.models.find((item) => item.id === state.active)?.label ?? state.active)
-      return h('div', { style: barStyle, title: '网页版使用哪个模型（目录来自插件配置的 models）' },
+      return h('div', { style: barStyle, title: '网页版使用哪个模型（与 DSH 聊天框同一份目录）' },
         h('span', null, '模型'),
         h('select', {
           value: state.active,
@@ -158,12 +179,16 @@ window.__ModuleLoader__.load({
           disabled: state.loading || saving || state.models.length === 0,
           style: selectStyle,
           'aria-label': '网页版使用哪个模型',
-        }, state.models.map((item) => h('option', { key: item.id, value: item.id },
-          `${item.label ?? item.id}${item.default ? '（默认）' : ''}`))),
+        }, state.groups.length > 0
+          ? state.groups.map((group) => h('optgroup', { key: group.id, label: group.name },
+            (group.models ?? []).map((model) => h('option', { key: `${group.id}/${model.id}`, value: `${group.id}/${model.id}` }, model.name))))
+          : state.models.map((item) => h('option', { key: item.id, value: item.id },
+            `${item.label ?? item.id}${item.default ? '（默认）' : ''}`))),
         saving ? h('span', null, '切换中…') : null,
         !state.loading && state.models.length > 1
           ? h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, `当前：${label}`)
-          : null)
+          : null,
+        state.dsh ? h('span', { style: { color: '#9ca3af' } }, '与 DSH 聊天框同款目录') : null)
     }
 
     /** 会话菜单里的图标：一个"导入到托盘"的线性图标，风格对齐宿主其它条目。 */

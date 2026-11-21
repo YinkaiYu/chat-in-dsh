@@ -79,6 +79,52 @@ export function modelCatalog(config = {}) {
   return { entries, isDefault: false, defaultId }
 }
 
+/** DSH 目录项 → 面板目录项：provider/model 拼成唯一 id（`provider/model`）。
+ * 与 DSH 聊天框同源的条目经这个函数进入面板下拉；选中后宿主走对应 provider 发请求。
+ */
+export function fromDshEntry(provider, model) {
+  return {
+    id: `${provider.id}/${model.id}`,
+    label: model.name,
+    api: 'dsh',
+    provider: provider.id,
+    providerName: provider.name,
+    upstreamModel: model.id,
+    reasoning: model.reasoning,
+  }
+}
+
+/**
+ * DSH 目录 + 插件目录合并：DSH 全量在前（与 DSH 聊天框同源、同顺序），
+ * 插件 models 里 id 不冲突的项追加在后作兜底（含官方 deepseek-flash 直通项）。
+ */
+export function mergeDshCatalog(pluginCatalog, dshGroups = []) {
+  const entries = []
+  const seen = new Set()
+  if (Array.isArray(dshGroups)) {
+    for (const group of dshGroups) {
+      if (group === null || typeof group !== 'object') continue
+      for (const model of Array.isArray(group.models) ? group.models : []) {
+        const entry = fromDshEntry(
+          { id: group.id, name: group.name },
+          model,
+        )
+        if (seen.has(entry.id)) continue
+        seen.add(entry.id)
+        entries.push(entry)
+      }
+    }
+  }
+  for (const entry of pluginCatalog.entries) {
+    if (seen.has(entry.id)) continue
+    seen.add(entry.id)
+    entries.push(entry)
+  }
+  if (entries.length === 0) return pluginCatalog
+  const defaultId = seen.has(pluginCatalog.defaultId) ? pluginCatalog.defaultId : entries[0].id
+  return { entries, isDefault: false, defaultId }
+}
+
 /** 按 id 找目录项。 */
 export function findModelEntry(catalog, id) {
   if (typeof id !== 'string' || id === '') return undefined
@@ -118,30 +164,35 @@ export function activeModelId(catalog, selection) {
 /**
  * 模型注册表：目录 + 选择文件。
  * 每次 active() 都重读状态文件，所以外部改文件（或用设置页切换）都能立刻生效。
+ *
+ * `dshGroups` 是宿主经 ctx.llm 取到的 DSH 同一份目录（与 DSH 聊天框同源）：
+ * 传了它，目录 = DSH 全量 provider/model（api: 'dsh'）+ 插件 models 配置合并
+ * （插件项 id 不与 DSH 项冲突时追加，作兜底）；不传时退回纯插件目录行为。
  */
-export function createModelRegistry(config, home) {
+export function createModelRegistry(config, home, dshGroups = []) {
   const catalog = modelCatalog(config)
+  const merged = mergeDshCatalog(catalog, dshGroups)
   const file = resolveStateFile(home, config)
   return {
-    catalog,
+    catalog: merged,
     file,
     list() {
-      return catalog.entries.map(entry => ({
+      return merged.entries.map(entry => ({
         id: entry.id,
         label: entry.label,
         api: entry.api,
-        default: entry.id === catalog.defaultId,
+        default: entry.id === merged.defaultId,
       }))
     },
     activeId() {
-      return activeModelId(catalog, readSelection(file))
+      return activeModelId(merged, readSelection(file))
     },
     active() {
-      const id = activeModelId(catalog, readSelection(file))
-      return findModelEntry(catalog, id) ?? catalog.entries[0]
+      const id = activeModelId(merged, readSelection(file))
+      return findModelEntry(merged, id) ?? merged.entries[0]
     },
     select(id) {
-      if (findModelEntry(catalog, id) === undefined) return false
+      if (findModelEntry(merged, id) === undefined) return false
       writeSelection(file, id)
       return true
     },

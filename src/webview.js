@@ -17,6 +17,8 @@ import { fileURLToPath } from 'node:url'
 import { DEFAULT_BASE_URL, TOKEN_HEADER, apiRoot, isInside } from './protocol.js'
 import { ackPending, listPending, readDshSession, stageImport } from './dsh-import.js'
 import { createModelRegistry } from './models.js'
+import { listDshModels } from './dsh-models.js'
+import { proxyDshDispatch } from './dsh-dispatch.js'
 import { createAnthropicStream, toAnthropicMessage, toOpenAIRequest } from './openai-bridge.js'
 
 /** 构建产物位置（包内自带，安装即可用）。 */
@@ -283,10 +285,19 @@ async function proxyOpenAIMessages(ctx, req, res, entry) {
 
 /**
  * 上游请求原样转发，鉴权换成 DSH 的账户凭据或 API Key；SSE 直接透传。
+ * DSH 目录项（api: 'dsh'，与 DSH 聊天框同源）走 live registry 派发；
  * 目录项是 OpenAI 协议时改走桥；否则仍是原来的直通路径，只按选择替换 model。
  */
 async function proxyMessages(ctx, config, req, res, registry) {
   const entry = registry.active()
+  if (entry.api === 'dsh' && typeof entry.provider === 'string') {
+    await proxyDshDispatch(ctx, await readBody(req), res, {
+      provider: entry.provider,
+      model: entry.upstreamModel ?? entry.id.split('/').slice(1).join('/') ?? entry.id,
+      reasoningEffort: entry.reasoningEffort,
+    })
+    return
+  }
   if (entry.api === 'openai') {
     await proxyOpenAIMessages(ctx, req, res, entry)
     return
@@ -597,6 +608,18 @@ document.getElementById('save').addEventListener('click', async function () {
  */
 export function createWebview(ctx, config, home) {
   const models = createModelRegistry(config, home)
+  // 每次请求现取 DSH 同一份目录并合并：DSH 聊天框侧增删模型，面板下拉下一次请求就跟上。
+  const registryFor = async () => {
+    try {
+      const live = await listDshModels(ctx)
+      if (live?.ok && Array.isArray(live.groups) && live.groups.length > 0) {
+        return createModelRegistry(config, home, live.groups)
+      }
+    } catch {
+      // 取不到就用插件目录（models.js 兜底行为）
+    }
+    return models
+  }
   return async function handle(req, res) {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1')
     const { pathname } = url
@@ -639,7 +662,7 @@ export function createWebview(ctx, config, home) {
     }
     if (pathname === '/webchat/api/self-test' && isGet) {
       try {
-        sendJson(res, await selfTest(ctx, config, models))
+        sendJson(res, await selfTest(ctx, config, await registryFor()))
       } catch (error) {
         sendJson(res, { ok: false, error: String(error?.message ?? error) }, 500)
       }
@@ -648,41 +671,54 @@ export function createWebview(ctx, config, home) {
 
     // 模型列表：网页版用它做入口校验；同时暴露目录，方便脚本查看可选模型。
     if (pathname === '/webchat/models' && isGet) {
+      const registry = await registryFor()
       sendJson(res, {
         object: 'list',
-        data: models.list().map(item => ({ id: item.id, object: 'model', label: item.label, api: item.api, default: item.default })),
-        default: models.activeId(),
+        data: registry.list().map(item => ({ id: item.id, object: 'model', label: item.label, api: item.api, default: item.default })),
+        default: registry.activeId(),
       })
+      return
+    }
+
+    // DSH 同一份模型目录：宿主经 ctx.llm 取全量 provider/model（与 DSH 聊天框同源）。
+    // 面板下拉数据源；失败时回退插件 models 配置（见 models.js）。
+    if (pathname === '/webchat/api/dsh-models' && isGet) {
+      try {
+        sendJson(res, await listDshModels(ctx))
+      } catch (error) {
+        sendJson(res, { ok: false, error: String(error?.message ?? error) }, 500)
+      }
       return
     }
 
     // 模型选择：GET 看可选模型与当前选择，POST { id } 切换（落在 DSH_HOME 的状态文件里）。
     if (pathname === '/webchat/api/models') {
+      const registry = await registryFor()
       if (isGet) {
-        sendJson(res, { ok: true, models: models.list(), active: models.activeId(), stateFile: models.file })
+        sendJson(res, { ok: true, models: registry.list(), active: registry.activeId(), stateFile: registry.file })
         return
       }
       if (method === 'POST') {
         const body = await readJsonBody(req)
         const id = typeof body?.id === 'string' ? body.id.trim() : ''
-        if (!models.select(id)) {
+        if (!registry.select(id)) {
           sendJson(res, { ok: false, error: `没有这个模型：${id}` }, 404)
           return
         }
-        sendJson(res, { ok: true, active: models.activeId() })
+        sendJson(res, { ok: true, active: registry.activeId() })
         return
       }
     }
 
     // 设置页：模型列表 + 单选切换（网页版前端产物不好重建，选择界面放在宿主这边）。
     if (pathname === '/webchat/settings' && isGet) {
-      sendHtml(res, renderModelSettings(models))
+      sendHtml(res, renderModelSettings(await registryFor()))
       return
     }
 
     if (pathname === '/webchat/anthropic/v1/messages' && method === 'POST') {
       try {
-        await proxyMessages(ctx, config, req, res, models)
+        await proxyMessages(ctx, config, req, res, await registryFor())
       } catch (error) {
         if (!res.headersSent) sendJson(res, { error: { message: String(error?.message ?? error) } }, 502)
         else res.destroy()

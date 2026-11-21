@@ -68,9 +68,12 @@ The panel has its own conversation list, separate from DSH sessions.
 
 ## Use another model (optional)
 
-Defaults are untouched: with no configuration the panel proxies to the official DeepSeek endpoints,
-exactly as before. To point the panel at a different model, give it a model catalog in the plugin config
-(omit `models` and you are back to the official single entry):
+Defaults are untouched: the panel header lists the **same model catalog as the DSH composer**
+(provider groups, same source and order), and the selection dispatches through DSH providers —
+no extra configuration needed.
+
+Only when the host has no model catalog (or you want a few pinned entries) do you need a fallback
+`models` catalog in the plugin config (omit `models` and you are back to the official single entry):
 
 ```yaml
 - id: chat-in-dsh
