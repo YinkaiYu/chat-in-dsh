@@ -134,10 +134,11 @@ export async function proxyDshDispatch(ctx, rawBody, res, { provider, model, rea
   try {
     prepared = await ctx.llm.prepareCall(provider, model, controller.signal)
   } catch (error) {
+    const message = String(error?.message ?? error)
     res.writeHead(502, { 'content-type': 'application/json; charset=utf-8' })
     res.end(JSON.stringify({
       type: 'error',
-      error: { type: 'api_error', message: String(error?.message ?? error) },
+      error: { type: 'api_error', message: `[${provider}/${model}] prepareCall 失败：${message}`.slice(0, 500) },
     }))
     return
   }
@@ -152,13 +153,51 @@ export async function proxyDshDispatch(ctx, rawBody, res, { provider, model, rea
     await pipeDshStream(prepared.stream(options), res, { model: `${provider}/${model}`, thinking })
   } catch (error) {
     if (!res.headersSent) {
+      const message = String(error?.message ?? error)
       res.writeHead(502, { 'content-type': 'application/json; charset=utf-8' })
       res.end(JSON.stringify({
         type: 'error',
-        error: { type: 'api_error', message: String(error?.message ?? error) },
+        error: { type: 'api_error', message: `[${provider}/${model}] 派发失败：${message}`.slice(0, 500) },
       }))
     } else {
       res.destroy()
     }
+  }
+}
+
+/**
+ * 自检的 DSH 侧：对当前选择的 provider/model 做一次最小派发（maxTokens 16，非流式收尾），
+ * 确认 prepareCall + stream 能通。返回的 detail 带 provider/model，失败带真实错误。
+ */
+export async function selfTestDshDispatch(ctx, entry) {
+  const provider = entry.provider
+  const model = entry.upstreamModel ?? String(entry.id).split('/').slice(1).join('/') ?? entry.id
+  const timeout = (ms) => {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(new Error(`超时 ${ms}ms`)), ms)
+    if (typeof timer.unref === 'function') timer.unref()
+    return controller.signal
+  }
+  try {
+    const prepared = await ctx.llm.prepareCall(provider, model, timeout(60_000))
+    const stream = prepared.stream({
+      provider,
+      model,
+      messages: [{ role: 'user', content: [{ type: 'text', text: '只回复两个字：收到' }] }],
+      maxTokens: 16,
+      signal: timeout(120_000),
+    })
+    let text = ''
+    let count = 0
+    for await (const chunk of stream) {
+      count += 1
+      if (count > 200) break
+      if (chunk?.type === 'text-delta' && typeof chunk.text === 'string') text += chunk.text
+      if (chunk?.type === 'finish' || chunk?.type === 'aborted') break
+    }
+    const ok = text.trim() !== ''
+    return { ok, detail: ok ? `${provider}/${model} · ${text.trim().slice(0, 60)}` : `${provider}/${model} · 空回复` }
+  } catch (error) {
+    return { ok: false, detail: `${provider}/${model} · ${String(error?.message ?? error).slice(0, 300)}` }
   }
 }
