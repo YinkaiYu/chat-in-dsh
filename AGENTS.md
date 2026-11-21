@@ -34,6 +34,8 @@
 node --test test/protocol.test.js test/dsh-import.test.js test/webview-auth.test.js \
   test/models.test.js test/openai-bridge.test.js test/webview-models.test.js
 node test/live-e2e.mjs             # 真上游端到端：需要 BIFROST_VIRTUAL_KEY（做法见下）
+node test/profile-e2e.mjs          # 真实 profile 验证：跑在运行中的 dsh web 上，需要 DSH_WEB_TOKEN
+node test/ui-e2e.mjs               # 真实浏览器验证：CDP 点设置页切模型再对话，需要 DSH_WEB_TOKEN
 pwsh scripts/build-webview.ps1     # 克隆上游、打补丁、构建、同步 webview/dist
 ```
 
