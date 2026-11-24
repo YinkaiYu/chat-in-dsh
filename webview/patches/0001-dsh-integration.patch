@@ -407,7 +407,7 @@ index c4594f8..92a3698 100644
    border: none;
    border-radius: 50%;
 diff --git a/src/components/chatInput/ChatInput.tsx b/src/components/chatInput/ChatInput.tsx
-index 7a66a71..b642d00 100644
+index 7a66a71..ec2ba42 100644
 --- a/src/components/chatInput/ChatInput.tsx
 +++ b/src/components/chatInput/ChatInput.tsx
 @@ -1,5 +1,6 @@
@@ -673,7 +673,7 @@ index 7a66a71..b642d00 100644
    const dragging = useFileDrop(acceptFiles)
  
    /** 转写结果插入到光标处，并把光标移到插入内容之后 */
-@@ -133,11 +327,16 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
+@@ -133,11 +327,17 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
    const canSend = !importingHistory && !streaming && voice.status === 'idle' && draftReady
  
    const send = () => {
@@ -690,12 +690,13 @@ index 7a66a71..b642d00 100644
 +      return
 +    }
 +    // 切分支后草稿仍可能带着旧分支的附件；以发送当时的可见分支再校验一次。
-+    if (countSessionFiles(sessionId) + prepared.files.length > MAX_COUNT) {
++    // 纯文本消息不带附件，不受会话已用额度影响：历史附件累计只约束本条消息的附件。
++    if (prepared.files.length > 0 && countSessionFiles(sessionId) + prepared.files.length > MAX_COUNT) {
 +      showToast({ key: 'fileCountLimitExceededToast', params: { count: MAX_COUNT } })
        return
      }
      // 文本与上传完成态由提交动作读取最新快照，不使用上一次渲染的草稿。
-@@ -161,7 +360,13 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
+@@ -161,7 +361,13 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
          }
        }}
      >
@@ -710,7 +711,7 @@ index 7a66a71..b642d00 100644
        <div className={styles.textareaWrapper}>
          <textarea
            ref={textareaRef}
-@@ -172,7 +377,11 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
+@@ -172,7 +378,11 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
            autoFocus={!isMobile}
            disabled={importingHistory}
            value={text}
@@ -723,7 +724,7 @@ index 7a66a71..b642d00 100644
            onMouseDown={(event) => {
              // 首次点击时手动聚焦，避免 Safari 把整个页面滚到输入框位置。
              if (isMobile && event.button === 0 && document.activeElement !== event.currentTarget) {
-@@ -184,15 +393,11 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
+@@ -184,15 +394,11 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
                event.preventDefault()
                send()
@@ -5168,7 +5169,7 @@ index 0d28fa5..3fb5578 100644
    }
    const { text, files } = prepared
 +  // 切换分支后草稿附件与当前可见分支可能叠加超过上限，发送时做最终校验。
-+  if ((targetSessionId === null ? 0 : countSessionFiles(targetSessionId)) + files.length > MAX_COUNT) {
++  if (files.length > 0 && (targetSessionId === null ? 0 : countSessionFiles(targetSessionId)) + files.length > MAX_COUNT) {
 +    return false
 +  }
    const now = Date.now()
