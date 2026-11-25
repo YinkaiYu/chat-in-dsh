@@ -295,31 +295,53 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * macOS 的红绿灯悬浮在窗口内容上方。DSH 只在部分入口页预留了
-     * --dsh-frame-top-clearance；插件面板是全局 main panel，需要自己避开。
-     * 仅当面板贴住窗口左边（DSH 侧栏收起/抽屉）时让出这段高度；
-     * 如果 DSH 已经通过 main panel padding 让过，则不重复叠加。
+     * macOS 的窗口控制悬浮在内容上方：
+     * - 非全屏：红绿灯 + shell.leading 占用顶部，按 --dsh-frame-top-clearance 让出高度；
+     * - 全屏：红绿灯隐藏，但 shell.leading 的侧栏/新会话按钮仍在左上，按
+     *   --dsh-frame-leading-clearance 让出左边，避免压住网页版自己的顶部按钮。
+     * 只有面板贴住窗口左边时才有这个问题；DSH 已经加过的 padding 要减掉，
+     * 避免抽屉模式重复留白。
      */
-    function panelChromeInset(node) {
+    function panelChromeInsets(node) {
       const root = document.documentElement
-      if (root.dataset.platform !== 'darwin' || root.hasAttribute('data-fullscreen')) {
-        return 0
-      }
       const parent = node?.parentElement
-      if (!parent || parent.getBoundingClientRect().left > 1) {
-        return 0
+      if (
+        root.dataset.platform !== 'darwin' ||
+        !parent ||
+        parent.getBoundingClientRect().left > 1
+      ) {
+        return { top: 0, left: 0 }
       }
-      const clearance = Number.parseFloat(
-        getComputedStyle(root).getPropertyValue('--dsh-frame-top-clearance')
+      const style = getComputedStyle(parent)
+      const number = (value, fallback) => {
+        const parsed = Number.parseFloat(value)
+        return Number.isFinite(parsed) ? parsed : fallback
+      }
+      const existingTop = number(style.paddingTop, 0)
+      const existingLeft = number(style.paddingLeft, 0)
+      const topClearance = number(
+        style.getPropertyValue('--dsh-frame-top-clearance'),
+        48
       )
-      const existing = Number.parseFloat(getComputedStyle(parent).paddingTop) || 0
-      return Math.max(0, (Number.isFinite(clearance) ? clearance : 48) - existing)
+      if (root.hasAttribute('data-fullscreen')) {
+        const leadingClearance = number(
+          style.getPropertyValue('--dsh-frame-leading-clearance'),
+          0
+        )
+        // 自带 shell.leading 的 DSH 版本会发布 leading clearance；没有时退回
+        // 顶部让位，兼容旧宿主。
+        if (leadingClearance > 0) {
+          return { top: 0, left: Math.max(0, leadingClearance - existingLeft) }
+        }
+        return { top: Math.max(0, topClearance - existingTop), left: 0 }
+      }
+      return { top: Math.max(0, topClearance - existingTop), left: 0 }
     }
 
     /** 左侧面板：完整的网页版，带它自己的会话列表。 */
     function Panel() {
       const [token, setToken] = React.useState(importBus.token)
-      const [topInset, setTopInset] = React.useState(0)
+      const [insets, setInsets] = React.useState({ top: 0, left: 0 })
       const ref = React.useRef(null)
       React.useEffect(() => {
         const listener = (value) => setToken(value)
@@ -330,7 +352,7 @@ window.__ModuleLoader__.load({
         const node = ref.current
         if (!node) return undefined
         const parent = node.parentElement
-        const update = () => setTopInset(panelChromeInset(node))
+        const update = () => setInsets(panelChromeInsets(node))
         update()
         window.addEventListener('resize', update)
         const resizeObserver = typeof ResizeObserver === 'function' && parent
@@ -358,7 +380,8 @@ window.__ModuleLoader__.load({
           minHeight: 320,
           display: 'flex',
           boxSizing: 'border-box',
-          paddingTop: topInset,
+          paddingTop: insets.top,
+          paddingLeft: insets.left,
         },
       },
         h('div', { style: { flex: 1, minWidth: 0 } }, h(PanelFrame, { key: token, reloadToken: token })))

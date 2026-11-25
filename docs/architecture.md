@@ -68,9 +68,10 @@
 - 新版宿主用 `contextMenus` 注册会话导入；旧版没有该服务时，用宿主自带的
   `sidebar.workspaces.session.menu.item` 渲染同一条导入按钮。两个入口共用一次暂存请求，
   `contextMenus` 迟到或卸载时切换注册，不会同时出现两份。
-- macOS 红绿灯悬浮在窗口内容上方。DSH 只在部分入口页预留
-  `--dsh-frame-top-clearance`；插件作为 global main panel，在面板贴住窗口左边且非全屏时，
-  用该高度减去 DSH main panel 已有的 padding，避免红绿灯压住网页版侧栏。
+- macOS 的窗口控制悬浮在窗口内容上方。非全屏时，插件作为 global main panel
+  按 `--dsh-frame-top-clearance` 减去 DSH main panel 已有的 padding，避开红绿灯；
+  全屏时红绿灯隐藏但 `shell.leading` 的侧栏/新会话按钮仍在左上，插件按
+  `--dsh-frame-leading-clearance` 留出左边，避免压住网页版自己的顶部按钮。
 
 ## 前端构建
 
