@@ -9,7 +9,7 @@ $root = Split-Path -Parent $PSScriptRoot
 $vendor = Join-Path $root 'webview\vendor\chat-demo'
 $patch = Join-Path $root 'webview\patches\0001-dsh-integration.patch'
 $dist = Join-Path $root 'webview\dist'
-$upstream = '8ad7b56e196b87d8a3215dc09476d6d146ad3f0e'
+$upstream = 'cdf9617c5f265d58e0e1805635b2c10a3d41284d'
 
 if (-not (Test-Path $vendor)) {
   git clone https://github.com/deepseek-ai/chat-demo.git $vendor

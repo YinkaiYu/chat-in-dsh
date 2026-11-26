@@ -29,10 +29,10 @@
 | 约定 | `src/protocol.js` | 端点根、令牌头、路径越界判断（纯函数，有测试） |
 | 导入 | `src/dsh-import.js` | 只读解析 DSH 会话日志 → chat-demo 格式；暂存与确认（纯函数，有测试） |
 | 界面 | `client.js` | 左侧面板槽位、iframe、会话右键菜单、麦克风/头像桥 |
-| 前端 | `webview/dist` | chat-demo v0.1.3 构建产物，随仓库分发 |
+| 前端 | `webview/dist` | chat-demo v0.1.4 构建产物，随仓库分发 |
 | 上游补丁 | `webview/patches/0001-dsh-integration.patch` | 对 chat-demo 的全部改动 |
 
-上游基准：`8ad7b56e196b87d8a3215dc09476d6d146ad3f0e`（chat-demo v0.1.3，MIT）。
+上游基准：`cdf9617c5f265d58e0e1805635b2c10a3d41284d`（chat-demo v0.1.4，MIT）。
 
 实现细节看 [docs/architecture.md](docs/architecture.md)，这里不重复。
 

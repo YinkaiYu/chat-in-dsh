@@ -32,6 +32,7 @@ npm test
 - 旧内核 ZIP 导入：Chromium 109，或初始化时删除 `Array.prototype.toSorted` / `toReversed`，
   用合规 v3 ZIP 走设置页导入；覆盖读取中关闭设置再打开、格式/版本错误、`NotReadableError`、
   `QuotaExceededError` 和未知错误
+- 正常 ZIP 导入：检查上游进度条、会话图片附件、普通附件引用，以及导入中关闭设置后的状态恢复
 - 最终包安装后的发布前 smoke
 
 发布前由维护者/用户本地安装最终包确认核心流程，具体发布门槛见 [release.md](release.md)。

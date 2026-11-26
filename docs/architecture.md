@@ -9,10 +9,10 @@
 | 协议约定 | `src/protocol.js` | 端点根、令牌头、路径越界判断；纯函数，有测试 |
 | 导入解析 | `src/dsh-import.js` | 只读解析 DSH 会话日志 → chat-demo 会话；暂存与确认；有测试 |
 | 界面壳 | `client.js` | 左侧面板槽位、iframe、会话右键菜单、麦克风/头像桥 |
-| 前端产物 | `webview/dist` | chat-demo v0.1.3 构建产物，随仓库分发 |
+| 前端产物 | `webview/dist` | chat-demo v0.1.4 构建产物，随仓库分发 |
 | 上游补丁 | `webview/patches/0001-dsh-integration.patch` | 对 chat-demo 的全部改动 |
 
-上游基准：`8ad7b56e196b87d8a3215dc09476d6d146ad3f0e`（chat-demo v0.1.3，MIT）。
+上游基准：`cdf9617c5f265d58e0e1805635b2c10a3d41284d`（chat-demo v0.1.4，MIT）。
 
 ## 请求链路
 
@@ -52,13 +52,16 @@
   - 手动「重试」先丢弃失效句柄；
   - 未打开会话改名失败进入待重试队列。
 - ZIP 导入/导出/清空与待导入共用 Web Locks，防止多个同源面板同时提交暂存。
+- 手动 ZIP 导入沿用上游 v0.1.4 的覆盖语义，并采用其导入进度与图片附件随会话导入；
+  设置页仍保留本插件的错误分类、关闭后结果可见等行为。
 
 ## 旧内核与导入状态
 
-- DSH Go / Android WebView 可能停留在 Chromium 110 之前。前端源码不得使用 ES2023 的
-  `Array.prototype.toSorted` / `toReversed`，改用 `slice().sort()` / `slice().reverse()`。
-- 设置页的导入 hook 挂在 `SettingsDialog`，关闭设置不会卸载导入任务；读取中显示「正在导入历史对话…」，
-  结果在重新打开设置后仍可见，避免用户以为点了没反应而重复操作。
+- DSH Go / Android WebView 可能停留在 Chromium 110 之前。上游 v0.1.4 已把
+  `Array.prototype.toSorted` / `toReversed` 改为不依赖 ES2023 的写法；`frontend-compat`
+  测试继续守住源码和构建产物，禁止重新引入这些方法。
+- 设置页的导入 hook 挂在 `SettingsDialog`，关闭设置不会卸载导入任务；导入中显示上游进度条，
+  结果和错误在重新打开设置后仍可见，避免用户以为点了没反应而重复操作。
 - 导入错误按原因区分：归档格式/版本错误用 `BackupError.key`；`QuotaExceededError` 提示存储空间不足；
   `NotReadableError` 提示重新选择 ZIP；未知错误用中性重试提示。不要把具体对话内容写进错误。
 
