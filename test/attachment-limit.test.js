@@ -147,3 +147,18 @@ test('图片总量按实际上传字节计算，通用 MIME 按扩展名回退',
   assert.match(section, /application\/octet-stream/)
   assert.match(section, /VIEW_MIME_BY_EXT\[ext\]/, '通用 MIME 应回退到扩展名表（包含 jfif）')
 })
+
+test('上传大小兼容官方 bytes 与 size_bytes，缺失时用表单文件大小', () => {
+  const vendorClient = path.join(project, 'webview', 'vendor', 'chat-demo', 'src', 'services', 'api', 'client.ts')
+  if (existsSync(vendorClient)) {
+    const source = readFileSync(vendorClient, 'utf8')
+    assert.match(source, /uploaded\.size_bytes/, '应优先读取 size_bytes')
+    assert.match(source, /uploaded\.bytes/, '应兼容官方 bytes 字段')
+    assert.match(source, /uploadBody\.size/, '缺失大小字段时应使用表单文件大小')
+    return
+  }
+  const section = patchSection('src/services/api/client.ts')
+  assert.match(section, /uploaded\.size_bytes/)
+  assert.match(section, /uploaded\.bytes/)
+  assert.match(section, /uploadBody\.size/)
+})

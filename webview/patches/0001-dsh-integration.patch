@@ -3925,7 +3925,7 @@ index 91df5f9..0a812a9 100644
    <body>
      <div id="root"></div>
 diff --git a/src/services/api/client.ts b/src/services/api/client.ts
-index 5f6883c..8dccc6c 100644
+index 5f6883c..91f244c 100644
 --- a/src/services/api/client.ts
 +++ b/src/services/api/client.ts
 @@ -35,7 +35,9 @@ export class ApiError extends Error {
@@ -3967,19 +3967,39 @@ index 5f6883c..8dccc6c 100644
   */
  export const uploadFile = async (
    apiKey: string,
-@@ -110,9 +114,8 @@ export const uploadFile = async (
+@@ -110,17 +114,26 @@ export const uploadFile = async (
    signal?: AbortSignal
  ): Promise<FileObject> => {
    const form = new FormData()
 -  if (purpose) {
 -    form.append('purpose', purpose)
 -  }
+-  form.append('file', purpose === null ? await resizeUploadImage(file, signal) : file)
 +  // 图片仍走预缩放，但表单必须带 purpose，否则改走官方根 /files 后会被拒。
++  const uploadBody = purpose === null ? await resizeUploadImage(file, signal) : file
 +  form.append('purpose', purpose ?? 'user_data')
-   form.append('file', purpose === null ? await resizeUploadImage(file, signal) : file)
++  form.append('file', uploadBody)
    const response = await request(`${ANTHROPIC_BASE_URL}/files`, {
      method: 'POST',
-@@ -171,7 +174,12 @@ export async function* streamMessage(
+     headers: anthropicHeaders(apiKey, true),
+     body: form,
+     signal,
+   })
+-  return (await response.json()) as FileObject
++  const uploaded = (await response.json()) as FileObject
++  // 官方根 Files API 回包字段是 bytes；Anthropic 兼容回包字段是 size_bytes。
++  // 两者都没有时用真正放进表单的文件大小，不能用缩放前的原图大小。
++  const sizeBytes =
++    typeof uploaded.size_bytes === 'number'
++      ? uploaded.size_bytes
++      : typeof uploaded.bytes === 'number'
++        ? uploaded.bytes
++        : uploadBody.size
++  return { ...uploaded, size_bytes: sizeBytes }
+ }
+ 
+ /** DELETE /anthropic/v1/files/{file_id} */
+@@ -171,7 +184,12 @@ export async function* streamMessage(
        }
      }
      if (isErrorBody(payload)) {
@@ -4034,6 +4054,21 @@ index e88105c..78a2fa9 100644
  /** 服务端判定附件失效的情况：本地有原件时重新上传即可自愈 */
  export type FileErrorCode = 'fileIdMissing' | 'fileDataMissing' | 'invalidFileId'
  
+diff --git a/src/services/api/types.ts b/src/services/api/types.ts
+index 57345b0..d6136d4 100644
+--- a/src/services/api/types.ts
++++ b/src/services/api/types.ts
+@@ -243,7 +243,9 @@ export type FilePurpose = 'rich_layout_recognition' | 'user_data'
+ export type FileObject = {
+   id: string
+   type: 'file'
+-  size_bytes: number
++  /** 官方根 Files API 使用 bytes；兼容 Anthropic 的 size_bytes。 */
++  bytes?: number
++  size_bytes?: number
+   created_at: string
+   filename: string
+   mime_type: string
 diff --git a/src/services/attachments.ts b/src/services/attachments.ts
 index 62df888..7fe52dc 100644
 --- a/src/services/attachments.ts
