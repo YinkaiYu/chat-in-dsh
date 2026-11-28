@@ -73,6 +73,7 @@ test('发送额度校验：纯文本消息不受会话历史附件累计限制',
   assert.match(body, /MAX_DOCUMENT_COUNT/, '发送时应校验文档上限')
   assert.match(body, /MAX_IMAGE_COUNT/, '发送时应校验图片上限')
   assert.match(body, /MAX_IMAGE_TOTAL_BYTES/, '发送时应校验图片总大小')
+  assert.match(body, /uploadedImageBytes/, '图片总大小应使用实际上传字节数')
 })
 
 test('sendMessage 内部额度校验同样只拦带附件的消息', () => {
@@ -119,10 +120,30 @@ test('历史附件只统计实际会进入请求的 serverId', () => {
     const start = source.indexOf('export const countSessionFiles =')
     assert.notEqual(start, -1, '找不到 countSessionFiles')
     const body = source.slice(start, start + 2000)
+    assert.match(body, /getContextRounds\(getVisibleMessages\(session\)\)/, '只应统计实际进入上下文的完整轮次')
     assert.match(body, /serverId\s*!==\s*null/, 'countSessionFiles 应跳过没有 serverId 的导入附件')
     assert.match(body, /return \{ documents: 0, images: 0, imageBytes: 0 \}/, '空会话必须返回 imageBytes: 0')
+    assert.match(source, /assertPreparedRequestLimits\(prepared\)/, '补传后必须按最终请求再校验')
     return
   }
   const section = patchSection('src/services/chat/store.ts')
+  assert.match(section, /getContextRounds\(getVisibleMessages\(session\)\)/, '历史附件应只统计完整上下文轮次')
   assert.match(section, /\.filter\(\(file\) => file\.serverId !== null\)/, '补丁中的历史附件计数应过滤 serverId')
+  assert.match(section, /assertPreparedRequestLimits\(prepared\)/, '补传后必须按最终请求再校验')
+})
+
+test('图片总量按实际上传字节计算，通用 MIME 按扩展名回退', () => {
+  if (existsSync(vendorAttachments)) {
+    const source = readFileSync(vendorAttachments, 'utf8')
+    assert.match(source, /size_bytes/, '上传任务应记录服务端实际字节数')
+    assert.match(source, /uploadedImageBytes/, '发送前应使用实际上传字节数')
+    assert.match(source, /application\/octet-stream/, '通用 MIME 应回退到扩展名')
+    assert.match(source, /jfif/, 'jfif 应按扩展名识别为图片')
+    return
+  }
+  const section = patchSection('src/services/attachments.ts')
+  assert.match(section, /size_bytes/)
+  assert.match(section, /uploadedImageBytes/)
+  assert.match(section, /application\/octet-stream/)
+  assert.match(section, /VIEW_MIME_BY_EXT\[ext\]/, '通用 MIME 应回退到扩展名表（包含 jfif）')
 })
