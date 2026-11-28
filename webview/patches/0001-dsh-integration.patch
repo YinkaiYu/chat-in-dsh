@@ -4728,7 +4728,7 @@ index 8540bb1..6271eb2 100644
      const key =
        diff <= 0
 diff --git a/src/services/chat/store.ts b/src/services/chat/store.ts
-index 4e37a75..90ab9ae 100644
+index 4e37a75..a8a1b26 100644
 --- a/src/services/chat/store.ts
 +++ b/src/services/chat/store.ts
 @@ -3,11 +3,21 @@ import { getAbortReason, throwIfAborted } from '../../utils/abort.js'
@@ -4783,13 +4783,13 @@ index 4e37a75..90ab9ae 100644
  }
  
 +/** 会话可见分支里真正会随下一次请求发送的附件数量；没有 serverId 的导入附件不会进入请求。 */
-+export const countSessionFiles = (sessionId: string | null): { documents: number; images: number } => {
++export const countSessionFiles = (sessionId: string | null): { documents: number; images: number; imageBytes: number } => {
 +  if (sessionId === null) {
-+    return { documents: 0, images: 0 }
++    return { documents: 0, images: 0, imageBytes: 0 }
 +  }
 +  const session = getSession(sessionId)
 +  if (!session) {
-+    return { documents: 0, images: 0 }
++    return { documents: 0, images: 0, imageBytes: 0 }
 +  }
 +  // 只统计当前可见分支；导入的文档卡片没有 serverId，实际不会发给模型。
 +  return countAttachmentKinds(

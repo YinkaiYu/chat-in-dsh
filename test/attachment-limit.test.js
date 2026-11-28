@@ -120,6 +120,7 @@ test('历史附件只统计实际会进入请求的 serverId', () => {
     assert.notEqual(start, -1, '找不到 countSessionFiles')
     const body = source.slice(start, start + 2000)
     assert.match(body, /serverId\s*!==\s*null/, 'countSessionFiles 应跳过没有 serverId 的导入附件')
+    assert.match(body, /return \{ documents: 0, images: 0, imageBytes: 0 \}/, '空会话必须返回 imageBytes: 0')
     return
   }
   const section = patchSection('src/services/chat/store.ts')
