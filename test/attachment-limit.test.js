@@ -4,19 +4,20 @@ import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-// 回归：会话历史附件累计达到上限后，纯文本消息仍必须能发送。
+// 回归：文档与图片使用不同上限；会话历史附件额度不能拦纯文本消息。
 //
-// 背景：webview 的 send() 和 store 的 sendMessage() 都会以
-// 「会话可见分支已发送附件数 + 本条附件数 > MAX_COUNT」拦截发送。
-// 若缺少「本条消息确有附件」这个前提，纯文本消息也会被拦下，
-// 导致历史累计满额后整个会话永久发不出任何消息。
+// 文档：官方 API 每个请求最多 20 个文档块。
+// 图片：独立限制，官方 API 每个请求最多 600 张。
+// send() 和 sendMessage() 都必须只在本条消息带附件时校验历史额度，
+// 否则历史附件满了以后连纯文本也发不出去。
 //
-// 这里不构建前端。优先读已打补丁的 vendor 源码（本地跑过 build-webview.ps1 时才有），
-// 否则从补丁里还原/检查补丁后的内容：CI 里没有 vendor，同样要能守住这个行为。
+// 这里不构建前端。优先读已打补丁的 vendor 源码；CI 里没有 vendor，
+// 就从补丁里还原/检查补丁后的内容。
 
 const project = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const vendorChatInput = path.join(project, 'webview', 'vendor', 'chat-demo', 'src', 'components', 'chatInput', 'ChatInput.tsx')
 const vendorStore = path.join(project, 'webview', 'vendor', 'chat-demo', 'src', 'services', 'chat', 'store.ts')
+const vendorAttachments = path.join(project, 'webview', 'vendor', 'chat-demo', 'src', 'services', 'attachments.ts')
 const patchFile = path.join(project, 'webview', 'patches', '0001-dsh-integration.patch')
 
 /** 取出某个函数/箭头函数起始位置后的函数体（按花括号配对）。 */
@@ -55,11 +56,11 @@ function chatInputFromPatch() {
   return kept.join('\n')
 }
 
-/** 取出补丁里 store.ts 的改动段，用于没有 vendor 的 CI。 */
-function storePatchSection() {
+/** 取出补丁里某个文件的改动段，用于没有 vendor 的 CI。 */
+function patchSection(file) {
   const text = readFileSync(patchFile, 'utf8').replace(/\r\n/g, '\n')
-  const start = text.indexOf('diff --git a/src/services/chat/store.ts')
-  assert.notEqual(start, -1, '补丁里没有 store.ts 的改动')
+  const start = text.indexOf(`diff --git a/${file}`)
+  assert.notEqual(start, -1, `补丁里没有 ${file} 的改动`)
   const end = text.indexOf('diff --git ', start + 1)
   return end === -1 ? text.slice(start) : text.slice(start, end)
 }
@@ -67,39 +68,99 @@ function storePatchSection() {
 test('发送额度校验：纯文本消息不受会话历史附件累计限制', () => {
   const source = existsSync(vendorChatInput) ? readFileSync(vendorChatInput, 'utf8') : chatInputFromPatch()
   const body = functionBody(source, 'const send = () => {')
-  const limit = /if\s*\(([\s\S]*?)showToast\(\{\s*key:\s*'fileCountLimitExceededToast'/.exec(body)
-  assert.notEqual(limit, null, 'send() 里找不到文件数量上限校验')
-  const condition = limit[1]
-  assert.match(
-    condition,
-    /prepared\.files\.length\s*>\s*0/,
-    '额度校验必须先确认本条消息带附件，否则历史满了就连纯文本也发不出去'
-  )
-  assert.match(condition, /countSessionFiles\(sessionId\)/, '额度校验应基于可见分支的已发送附件数')
+  assert.match(body, /prepared\.files\.length\s*>\s*0/, '额度校验必须先确认本条消息带附件')
+  assert.match(body, /countSessionFiles\(sessionId\)/, '额度校验应基于可见分支的已发送附件数')
+  assert.match(body, /MAX_DOCUMENT_COUNT/, '发送时应校验文档上限')
+  assert.match(body, /MAX_IMAGE_COUNT/, '发送时应校验图片上限')
+  assert.match(body, /MAX_IMAGE_TOTAL_BYTES/, '发送时应校验图片总大小')
+  assert.match(body, /uploadedImageBytes/, '图片总大小应使用实际上传字节数')
 })
 
 test('sendMessage 内部额度校验同样只拦带附件的消息', () => {
   if (existsSync(vendorStore)) {
     const source = readFileSync(vendorStore, 'utf8')
     const body = functionBody(source, 'export const sendMessage =')
-    assert.match(
-      body,
-      /if\s*\(\s*files\.length\s*>\s*0\s*&&[\s\S]*?countSessionFiles\(targetSessionId\)[\s\S]*?\)\s*\{\s*return false/,
-      'sendMessage() 必须在 files.length > 0 时才校验历史累计'
-    )
+    assert.match(body, /if\s*\(\s*files\.length\s*>\s*0\s*\)/, 'sendMessage() 只能在有附件时校验额度')
+    assert.match(body, /countSessionFiles\(targetSessionId\)/, 'sendMessage() 应基于可见分支的已发送附件数')
+    assert.match(body, /MAX_DOCUMENT_COUNT/, 'sendMessage() 应校验文档上限')
+    assert.match(body, /MAX_IMAGE_COUNT/, 'sendMessage() 应校验图片上限')
+    assert.match(body, /MAX_IMAGE_TOTAL_BYTES/, 'sendMessage() 应校验图片总大小')
     return
   }
-  // CI 里没有 vendor；直接检查补丁中新增的那条守卫。
-  const section = storePatchSection()
-  assert.match(
-    section,
-    /^\+\s*if \(files\.length > 0 && \(targetSessionId === null \? 0 : countSessionFiles\(targetSessionId\)\) \+ files\.length > MAX_COUNT\) \{/m,
-    'sendMessage() 的累计额度校验缺少 files.length > 0 前提'
-  )
+  // CI 里没有 vendor；直接检查补丁中新增的守卫。
+  const section = patchSection('src/services/chat/store.ts')
+  assert.match(section, /^\+\s*if \(files\.length > 0\) \{/m, 'sendMessage() 的额度校验缺少 files.length > 0 前提')
+  assert.match(section, /countSessionFiles\(targetSessionId\)/, 'sendMessage() 缺少会话附件计数')
+  assert.match(section, /MAX_DOCUMENT_COUNT/, 'sendMessage() 缺少文档上限')
+  assert.match(section, /MAX_IMAGE_COUNT/, 'sendMessage() 缺少图片上限')
+  assert.match(section, /MAX_IMAGE_TOTAL_BYTES/, 'sendMessage() 缺少图片总大小上限')
 })
 
-test('附件额度常量保持官方 20 个文档块', () => {
-  const text = readFileSync(patchFile, 'utf8').replace(/\r\n/g, '\n')
-  // 官方限制是「每个请求最多 20 个文档块」，不能借这个修复悄悄放宽。
-  assert.match(text, /\+export const MAX_COUNT = 20\b/, '补丁应把 MAX_COUNT 设为 20')
+test('附件额度：文档 20 个、图片 600 张，分别计数', () => {
+  if (existsSync(vendorAttachments)) {
+    const source = readFileSync(vendorAttachments, 'utf8')
+    assert.match(source, /export const MAX_DOCUMENT_COUNT = 20\b/)
+    assert.match(source, /export const MAX_IMAGE_COUNT = 600\b/)
+    assert.match(source, /export const MAX_IMAGE_TOTAL_BYTES = 200 \* 1024 \* 1024\b/)
+    assert.match(source, /documents: number/)
+    assert.match(source, /images: number/)
+    return
+  }
+  const section = patchSection('src/services/attachments.ts')
+  assert.match(section, /^\+\s*export const MAX_DOCUMENT_COUNT = 20\b/m)
+  assert.match(section, /^\+\s*export const MAX_IMAGE_COUNT = 600\b/m)
+  assert.match(section, /^\+\s*export const MAX_IMAGE_TOTAL_BYTES = 200 \* 1024 \* 1024\b/m)
+  assert.match(section, /^\+\s*documents: number/m)
+  assert.match(section, /^\+\s*images: number/m)
+})
+
+test('历史附件只统计实际会进入请求的 serverId', () => {
+  if (existsSync(vendorStore)) {
+    const source = readFileSync(vendorStore, 'utf8')
+    const start = source.indexOf('export const countSessionFiles =')
+    assert.notEqual(start, -1, '找不到 countSessionFiles')
+    const body = source.slice(start, start + 2000)
+    assert.match(body, /getContextRounds\(getVisibleMessages\(session\)\)/, '只应统计实际进入上下文的完整轮次')
+    assert.match(body, /serverId\s*!==\s*null/, 'countSessionFiles 应跳过没有 serverId 的导入附件')
+    assert.match(body, /return \{ documents: 0, images: 0, imageBytes: 0 \}/, '空会话必须返回 imageBytes: 0')
+    assert.match(source, /assertPreparedRequestLimits\(prepared\)/, '补传后必须按最终请求再校验')
+    return
+  }
+  const section = patchSection('src/services/chat/store.ts')
+  assert.match(section, /getContextRounds\(getVisibleMessages\(session\)\)/, '历史附件应只统计完整上下文轮次')
+  assert.match(section, /\.filter\(\(file\) => file\.serverId !== null\)/, '补丁中的历史附件计数应过滤 serverId')
+  assert.match(section, /assertPreparedRequestLimits\(prepared\)/, '补传后必须按最终请求再校验')
+})
+
+test('图片总量按实际上传字节计算，通用 MIME 按扩展名回退', () => {
+  if (existsSync(vendorAttachments)) {
+    const source = readFileSync(vendorAttachments, 'utf8')
+    assert.match(source, /size_bytes/, '上传任务应记录服务端实际字节数')
+    assert.match(source, /uploadedImageBytes/, '发送前应使用实际上传字节数')
+    assert.match(source, /application\/octet-stream/, '通用 MIME 应回退到扩展名')
+    assert.match(source, /jfif/, 'jfif 应按扩展名识别为图片')
+    return
+  }
+  const section = patchSection('src/services/attachments.ts')
+  assert.match(section, /size_bytes/)
+  assert.match(section, /uploadedImageBytes/)
+  assert.match(section, /application\/octet-stream/)
+  assert.match(section, /VIEW_MIME_BY_EXT\[ext\]/, '通用 MIME 应回退到扩展名表（包含 jfif）')
+})
+
+test('上传大小兼容官方 bytes 与 size_bytes，缺失时用表单文件大小', () => {
+  const vendorClient = path.join(project, 'webview', 'vendor', 'chat-demo', 'src', 'services', 'api', 'client.ts')
+  if (existsSync(vendorClient)) {
+    const source = readFileSync(vendorClient, 'utf8')
+    assert.match(source, /uploaded\.size_bytes/, '应优先读取 size_bytes')
+    assert.match(source, /uploaded\.bytes/, '应兼容官方 bytes 字段')
+    assert.match(source, /uploadBody\.size/, '缺失大小字段时应使用表单文件大小')
+    assert.match(source, /Promise<FileObject & \{ size_bytes: number \}>/, '返回类型应保证 size_bytes 已补齐')
+    return
+  }
+  const section = patchSection('src/services/api/client.ts')
+  assert.match(section, /uploaded\.size_bytes/)
+  assert.match(section, /uploaded\.bytes/)
+  assert.match(section, /uploadBody\.size/)
+  assert.match(section, /Promise<FileObject & \{ size_bytes: number \}>/)
 })
