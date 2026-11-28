@@ -407,7 +407,7 @@ index c4594f8..92a3698 100644
    border: none;
    border-radius: 50%;
 diff --git a/src/components/chatInput/ChatInput.tsx b/src/components/chatInput/ChatInput.tsx
-index 7a66a71..a9477a8 100644
+index 7a66a71..d56e1f4 100644
 --- a/src/components/chatInput/ChatInput.tsx
 +++ b/src/components/chatInput/ChatInput.tsx
 @@ -1,5 +1,6 @@
@@ -437,7 +437,7 @@ index 7a66a71..a9477a8 100644
    retryDraftAttachment,
    setDraftText,
    useDrafts,
-@@ -26,7 +32,14 @@ import { Tooltip } from '../base/Tooltip.js'
+@@ -26,7 +32,15 @@ import { Tooltip } from '../base/Tooltip.js'
  import { ensureApiKey } from '../settings/settingsDialogState.js'
  import { DragMask, useFileDrop } from './DragMask.js'
  import { showToast } from '../base/toastState.js'
@@ -448,12 +448,13 @@ index 7a66a71..a9477a8 100644
 +  countFileKinds,
 +  MAX_DOCUMENT_COUNT,
 +  MAX_IMAGE_COUNT,
++  MAX_IMAGE_TOTAL_BYTES,
 +  useUploads,
 +} from '../../services/attachments.js'
  import { DraftAttachments } from './DraftAttachments.js'
  import { useVoiceInput } from './useVoiceInput.js'
  import { VoiceButton } from './VoiceButton.js'
-@@ -34,6 +47,15 @@ import { Spectrum } from './Spectrum.js'
+@@ -34,6 +48,15 @@ import { Spectrum } from './Spectrum.js'
  import { useTranslate } from '../../i18n/index.js'
  import styles from './ChatInput.module.css'
  
@@ -469,7 +470,7 @@ index 7a66a71..a9477a8 100644
  /** 输入框：自适应高度的文本框 + 文件 + 深度思考与智能搜索开关 + 语音输入 + 发送 / 停止 */
  export const ChatInput = memo(function ChatInput({ sessionId }: { sessionId: string | null }) {
    // 切换目标时释放录音、转写和 DOM 状态；文字与附件由草稿服务保留。
-@@ -56,6 +78,8 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
+@@ -56,6 +79,8 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
    const fileInputRef = useRef<HTMLInputElement>(null)
    const textareaRef = useRef<HTMLTextAreaElement>(null)
    const togglesRef = useRef<HTMLDivElement>(null)
@@ -478,7 +479,7 @@ index 7a66a71..a9477a8 100644
  
    useLayoutEffect(() => {
      const toggles = togglesRef.current
-@@ -78,6 +102,28 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
+@@ -78,6 +103,28 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
      if (files.length === 0 || useChatStore.getState().importingHistory || !ensureApiKey()) {
        return
      }
@@ -507,7 +508,7 @@ index 7a66a71..a9477a8 100644
      const error = addDraftFiles(sessionId, files, useSettings.getState().apiKey ?? '')
      if (error) {
        showToast(error)
-@@ -91,14 +137,184 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
+@@ -91,14 +138,184 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
      },
      [sessionId]
    )
@@ -695,7 +696,7 @@ index 7a66a71..a9477a8 100644
    const dragging = useFileDrop(acceptFiles)
  
    /** 转写结果插入到光标处，并把光标移到插入内容之后 */
-@@ -133,13 +349,27 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
+@@ -133,13 +350,31 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
    const canSend = !importingHistory && !streaming && voice.status === 'idle' && draftReady
  
    const send = () => {
@@ -724,11 +725,15 @@ index 7a66a71..a9477a8 100644
 +        showToast({ key: 'fileImageLimitExceededToast', params: { count: MAX_IMAGE_COUNT } })
 +        return
 +      }
++      if (sentCounts.imageBytes + preparedCounts.imageBytes > MAX_IMAGE_TOTAL_BYTES) {
++        showToast({ key: 'imageTotalSizeExceeded' })
++        return
++      }
 +    }
      // 文本与上传完成态由提交动作读取最新快照，不使用上一次渲染的草稿。
      if (!ensureApiKey() || !sendMessage(sessionId)) {
        return
-@@ -161,7 +391,13 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
+@@ -161,7 +396,13 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
          }
        }}
      >
@@ -743,7 +748,7 @@ index 7a66a71..a9477a8 100644
        <div className={styles.textareaWrapper}>
          <textarea
            ref={textareaRef}
-@@ -172,7 +408,11 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
+@@ -172,7 +413,11 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
            autoFocus={!isMobile}
            disabled={importingHistory}
            value={text}
@@ -756,7 +761,7 @@ index 7a66a71..a9477a8 100644
            onMouseDown={(event) => {
              // 首次点击时手动聚焦，避免 Safari 把整个页面滚到输入框位置。
              if (isMobile && event.button === 0 && document.activeElement !== event.currentTarget) {
-@@ -184,15 +424,11 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
+@@ -184,15 +429,11 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
                event.preventDefault()
                send()
@@ -3632,7 +3637,7 @@ index 0000000..77baab0
 +
 +export const consumeScrollTarget = () => useSessionSearch.setState({ pending: null })
 diff --git a/src/i18n/en.ts b/src/i18n/en.ts
-index 2d49027..07a38ce 100644
+index 2d49027..e90d21e 100644
 --- a/src/i18n/en.ts
 +++ b/src/i18n/en.ts
 @@ -5,6 +5,10 @@ export const en = {
@@ -3695,7 +3700,7 @@ index 2d49027..07a38ce 100644
    mermaidDiagram: 'Diagram',
    mermaidCode: 'Code',
    mermaidEmpty: 'This diagram is empty.',
-@@ -69,11 +94,26 @@ export const en = {
+@@ -69,11 +94,27 @@ export const en = {
    toolFindFailTooltip: 'No related content found',
    readingLink: 'Reading',
    commonNetworkErrorToast: 'Network Error. Please check your network status.',
@@ -3714,6 +3719,7 @@ index 2d49027..07a38ce 100644
 +  hintFallback: 'Send failed. Try again later.',
    completionServerBusyToast: 'Server busy, please try again later.',
 +  promptTooLongHint: 'Content is too long. Please shorten it and try again.',
++  requestTooLargeHint: 'Request is too large. Reduce images or attachments and try again.',
 +  fileContentTooLong: 'Text limit exceeded',
 +  fileCountLimitExceededToast: 'File limit reached. {count} files max per session.',
 +  fileDocumentLimitExceededToast: 'Document limit reached. {count} documents max per session.',
@@ -3722,7 +3728,7 @@ index 2d49027..07a38ce 100644
    unknownError: 'Unknown error',
    replyRefused: "Sorry, that's beyond my current scope. Let's talk about something else.",
    messageThinkDuration: 'Thought for {count} second',
-@@ -119,8 +159,10 @@ export const en = {
+@@ -119,8 +160,10 @@ export const en = {
      'Importing chat history replaces all local chats and attachments. Supports ZIP files exported from DeepSeek.',
    historyImportedOne: 'Imported 1 chat',
    historyImported: 'Imported {count} chats',
@@ -3735,16 +3741,17 @@ index 2d49027..07a38ce 100644
    historyExportFailed: 'Export failed: {message}',
    exportAllLabel: 'Export all chats',
    historyExportDescription:
-@@ -147,6 +189,8 @@ export const en = {
+@@ -147,6 +190,9 @@ export const en = {
    chatInputStopButtonTooltip: 'Stop',
    uploadMaxMBSize: 'File exceeds the size limit ({size} MB). Please adjust and try again.',
    uploadMaxFiles: 'You can upload up to {count} files',
 +  uploadMaxDocuments: 'You can upload up to {count} documents',
 +  uploadMaxImages: 'You can upload up to {count} images',
++  imageTotalSizeExceeded: 'Total image size exceeds the 200 MB limit. Reduce the images and try again.',
    uploadFileStatusUploading: 'Uploading...',
    uploadServerBusy: 'Server busy',
    uploadParseFailed: 'Parsing failed',
-@@ -154,7 +198,11 @@ export const en = {
+@@ -154,7 +200,11 @@ export const en = {
    uploadStorageLimit: 'Uploaded file storage limit reached ({limit} GB). ',
    uploadDeleteFiles: 'Delete files',
    dragFileToUpload: 'Drop files here to upload',
@@ -3757,13 +3764,13 @@ index 2d49027..07a38ce 100644
    voiceInput: 'Voice input',
    voiceInputTimer: 'Recording {seconds}s',
    voiceInputStop: 'Stop recording and transcribe',
-@@ -179,3 +227,4 @@ export const en = {
+@@ -179,3 +229,4 @@ export const en = {
    settingsLocaleZhCN: 'Simplified Chinese',
    settingsLocaleEnUS: 'English',
  } satisfies Record<keyof typeof zh, string>
 +
 diff --git a/src/i18n/zh.ts b/src/i18n/zh.ts
-index d99f058..d009d22 100644
+index d99f058..659d852 100644
 --- a/src/i18n/zh.ts
 +++ b/src/i18n/zh.ts
 @@ -3,6 +3,10 @@ export const zh = {
@@ -3825,7 +3832,7 @@ index d99f058..d009d22 100644
    mermaidDiagram: '图表',
    mermaidCode: '代码',
    mermaidEmpty: '图表为空',
-@@ -66,9 +91,24 @@ export const zh = {
+@@ -66,9 +91,25 @@ export const zh = {
    readingLink: '正在阅读',
    commonNetworkErrorToast: '网络异常，请检查你的网络状况',
    replyInvalidApiKey: 'API Key 无效或已被删除，请更换后重试',
@@ -3843,6 +3850,7 @@ index d99f058..d009d22 100644
    completionServerBusyToast: '服务器繁忙，请稍后再试',
 +  contextLengthExceeded: '对话长度已达上限，请开启新对话',
 +  promptTooLongHint: '内容超长，请删减后再试',
++  requestTooLargeHint: '请求内容过大，请减少图片或附件后重试',
 +  fileContentTooLong: '文件内容过长',
 +  fileCountLimitExceededToast: '上传文件数达到上限，每个对话可上传 {count} 个文件',
 +  fileDocumentLimitExceededToast: '文档数量达到上限，每个对话可上传 {count} 个文档',
@@ -3850,7 +3858,7 @@ index d99f058..d009d22 100644
    unknownError: '未知错误',
    replyRefused: '你好，这个问题我暂时无法回答，让我们换个话题再聊聊吧。',
    messageThinkDuration: '已思考（用时 {count} 秒）',
-@@ -112,8 +152,10 @@ export const zh = {
+@@ -112,8 +153,10 @@ export const zh = {
    historyImportDescription: '导入历史对话会覆盖全部本地对话和附件，支持 DeepSeek 导出的 ZIP 文件。',
    historyImportedOne: '已导入 1 个对话',
    historyImported: '已导入 {count} 个对话',
@@ -3863,7 +3871,7 @@ index d99f058..d009d22 100644
    historyExportFailed: '导出失败：{message}',
    exportAllLabel: '导出所有历史对话',
    historyExportDescription:
-@@ -130,7 +172,7 @@ export const zh = {
+@@ -130,7 +173,7 @@ export const zh = {
      '上传的文件包含暂未支持的文件格式，请转换文件格式后重试。支持 PDF、DOC、XLSX、PPT、图片、文本、代码等。',
    uploadFileStatusFailed: '上传失败',
    uploadRetry: '{message}，点击重试',
@@ -3872,16 +3880,17 @@ index d99f058..d009d22 100644
    deactivatedThinkTooltip: '先思考后回答，解决推理问题',
    thinkingSwitch: '深度思考',
    deactivatedSearchTooltip: '按需搜索网页',
-@@ -139,6 +181,8 @@ export const zh = {
+@@ -139,6 +182,9 @@ export const zh = {
    chatInputStopButtonTooltip: '停止生成',
    uploadMaxMBSize: '单个文件大小超过限制（{size}MB），请调整后重试',
    uploadMaxFiles: '上传文件最多支持 {count} 个',
 +  uploadMaxDocuments: '文档最多支持 {count} 个',
 +  uploadMaxImages: '图片最多支持 {count} 张',
++  imageTotalSizeExceeded: '图片总大小超过限制（200MB），请减少图片后重试',
    uploadFileStatusUploading: '上传中...',
    uploadServerBusy: '服务器繁忙',
    uploadParseFailed: '解析失败',
-@@ -146,7 +190,11 @@ export const zh = {
+@@ -146,7 +192,11 @@ export const zh = {
    uploadStorageLimit: '已上传文件占用空间达到上限（{limit}GB），可 ',
    uploadDeleteFiles: '删除文件',
    dragFileToUpload: '文件拖动到此处即可上传',
@@ -4018,10 +4027,10 @@ index e88105c..78a2fa9 100644
  export type FileErrorCode = 'fileIdMissing' | 'fileDataMissing' | 'invalidFileId'
  
 diff --git a/src/services/attachments.ts b/src/services/attachments.ts
-index 62df888..d91a66b 100644
+index 62df888..791d479 100644
 --- a/src/services/attachments.ts
 +++ b/src/services/attachments.ts
-@@ -13,14 +13,47 @@ import { ACCEPT_FILE_EXTS } from './uploadExts.js'
+@@ -13,14 +13,59 @@ import { ACCEPT_FILE_EXTS } from './uploadExts.js'
  export const ACCEPTED_EXTS = ACCEPT_FILE_EXTS
  /** 选择文件对话框的过滤条件 */
  export const ACCEPT = ACCEPTED_EXTS.map((ext) => `.${ext}`).join(',')
@@ -4039,40 +4048,52 @@ index 62df888..d91a66b 100644
 +export const MAX_DOCUMENT_COUNT = 20
 +/** 图片是独立限制：官方 API 单个请求最多 600 张图片 */
 +export const MAX_IMAGE_COUNT = 600
++/** 图片总量是独立限制：包含 file_id 时单个请求最多 200 MiB */
++export const MAX_IMAGE_TOTAL_BYTES = 200 * 1024 * 1024
  /** 同时上传的文件数 */
  const MAX_CONCURRENT = 3
  
 +export type AttachmentCounts = {
 +  documents: number
 +  images: number
++  /** 图片原始文件字节数；用于请求总量预检 */
++  imageBytes: number
 +}
 +
 +export const countFileKinds = (files: readonly File[]): AttachmentCounts =>
 +  files.reduce<AttachmentCounts>(
 +    (counts, file) => {
-+      if (isImage(resolveMimeType(file))) counts.images += 1
-+      else counts.documents += 1
++      if (isImage(resolveMimeType(file))) {
++        counts.images += 1
++        counts.imageBytes += file.size
++      } else {
++        counts.documents += 1
++      }
 +      return counts
 +    },
-+    { documents: 0, images: 0 }
++    { documents: 0, images: 0, imageBytes: 0 }
 +  )
 +
 +export const countAttachmentKinds = (
-+  attachments: readonly { isImage: boolean }[]
++  attachments: readonly { isImage: boolean; size?: number }[]
 +): AttachmentCounts =>
 +  attachments.reduce<AttachmentCounts>(
 +    (counts, attachment) => {
-+      if (attachment.isImage) counts.images += 1
-+      else counts.documents += 1
++      if (attachment.isImage) {
++        counts.images += 1
++        counts.imageBytes += attachment.size ?? 0
++      } else {
++        counts.documents += 1
++      }
 +      return counts
 +    },
-+    { documents: 0, images: 0 }
++    { documents: 0, images: 0, imageBytes: 0 }
 +  )
 +
  /** 文件扩展名（小写，不含点）；没有扩展名时为空 */
  export const getFileExt = (name: string) => {
    const dot = name.lastIndexOf('.')
-@@ -32,7 +65,7 @@ export const isAcceptedExt = (name: string) => ACCEPTED_EXTS.includes(getFileExt
+@@ -32,7 +77,7 @@ export const isAcceptedExt = (name: string) => ACCEPTED_EXTS.includes(getFileExt
  /** 需要服务端做版面解析的文档；其余非图片文件（纯文本、代码、表格、电子书）无需解析 */
  const LAYOUT_RECOGNITION_EXTS = new Set(['pdf', 'doc', 'docx', 'ppt', 'pptx'])
  
@@ -4081,7 +4102,7 @@ index 62df888..d91a66b 100644
  export const getUploadPurpose = (name: string, isImage: boolean): FilePurpose | null => {
    if (isImage) {
      return null
-@@ -40,14 +73,22 @@ export const getUploadPurpose = (name: string, isImage: boolean): FilePurpose |
+@@ -40,14 +85,22 @@ export const getUploadPurpose = (name: string, isImage: boolean): FilePurpose |
    return LAYOUT_RECOGNITION_EXTS.has(getFileExt(name)) ? 'rich_layout_recognition' : 'user_data'
  }
  
@@ -4110,7 +4131,7 @@ index 62df888..d91a66b 100644
    if (files.some((file) => !isAcceptedExt(file.name))) {
      return { key: 'uploadUnsupportedFormat' }
    }
-@@ -55,8 +96,12 @@ export const validateFiles = (files: File[], currentCount: number): TranslationM
+@@ -55,8 +108,12 @@ export const validateFiles = (files: File[], currentCount: number): TranslationM
    if (oversized) {
      return { key: 'uploadMaxMBSize', params: { size: getMaxSizeMB(oversized) } }
    }
@@ -4125,7 +4146,7 @@ index 62df888..d91a66b 100644
    }
    return null
  }
-@@ -66,6 +111,11 @@ export const validateFiles = (files: File[], currentCount: number): TranslationM
+@@ -66,6 +123,11 @@ export const validateFiles = (files: File[], currentCount: number): TranslationM
   * 服务端原文多为英文且较长，不直接展示。
   */
  export const describeUploadError = (error: unknown): TranslationMessage => {
@@ -4276,7 +4297,7 @@ index ca8ced0..b87d778 100644
 +  return locks.request('chat-demo-history-replace', run)
 +}
 diff --git a/src/services/chat/describe.ts b/src/services/chat/describe.ts
-index 39ac0fa..5da7786 100644
+index 39ac0fa..e0d5d42 100644
 --- a/src/services/chat/describe.ts
 +++ b/src/services/chat/describe.ts
 @@ -17,6 +17,10 @@ const getTemplateText = (reply: AssistantMessage) =>
@@ -4290,7 +4311,7 @@ index 39ac0fa..5da7786 100644
    if (reply.status === 'error' && reply.error) {
      const { kind, status, localMessage } = reply.error
      // 导入的历史可能来自不同版本；不识别的文案沿用保存时的原文。
-@@ -33,15 +37,21 @@ export const describeReply = (reply: AssistantMessage): Notice | null => {
+@@ -33,15 +37,23 @@ export const describeReply = (reply: AssistantMessage): Notice | null => {
      }
      switch (classifyStatus(status)) {
        case 'unauthorized':
@@ -4306,6 +4327,8 @@ index 39ac0fa..5da7786 100644
        case 'rateLimited':
 -        return { text: translate('replyRateLimited') }
 +        return { text: translate('requestFrequencyTooHigh') }
++      case 'tooLarge':
++        return { text: translate('requestTooLargeHint') }
        case 'serverBusy':
 -        return { text: translate('completionServerBusyToast') }
 +        return { text: translate('completionServerErrorHint') }
@@ -4705,10 +4728,10 @@ index 8540bb1..6271eb2 100644
      const key =
        diff <= 0
 diff --git a/src/services/chat/store.ts b/src/services/chat/store.ts
-index 4e37a75..c2c2d96 100644
+index 4e37a75..90ab9ae 100644
 --- a/src/services/chat/store.ts
 +++ b/src/services/chat/store.ts
-@@ -3,11 +3,20 @@ import { getAbortReason, throwIfAborted } from '../../utils/abort.js'
+@@ -3,11 +3,21 @@ import { getAbortReason, throwIfAborted } from '../../utils/abort.js'
  import { createId } from '../../utils/id.js'
  import { ApiError, streamMessage } from '../api/client.js'
  import type { ChatModel, CreateMessageRequest } from '../api/types.js'
@@ -4727,10 +4750,11 @@ index 4e37a75..c2c2d96 100644
    describeUploadError,
 +  MAX_DOCUMENT_COUNT,
 +  MAX_IMAGE_COUNT,
++  MAX_IMAGE_TOTAL_BYTES,
    uploadAttachment,
    useUploads,
  } from '../attachments.js'
-@@ -26,6 +35,7 @@ import {
+@@ -26,6 +36,7 @@ import {
    applyEvent,
    canContinueReply,
    getContextRounds,
@@ -4738,7 +4762,7 @@ index 4e37a75..c2c2d96 100644
    settleReply,
    toRequestMessages,
  } from './reply.js'
-@@ -51,6 +61,15 @@ const SAFETY_CHECK = { level: 'high' } as const
+@@ -51,6 +62,15 @@ const SAFETY_CHECK = { level: 'high' } as const
  const FILE_RETRY_LIMIT = 2
  /** 退避基数，第 n 次重试等待 2^n 倍；连续失败达到上限就放弃，把原始报错展示出来 */
  const FILE_RETRY_BASE_DELAY = 1000
@@ -4754,7 +4778,7 @@ index 4e37a75..c2c2d96 100644
  
  /** 阅读链接始终开启，智能搜索开关控制是否另行声明搜索工具（含边想边搜）。 */
  const serverTools = (search: boolean): CreateMessageRequest['tools'] => {
-@@ -104,6 +123,23 @@ const getSession = (id: string) => {
+@@ -104,6 +124,23 @@ const getSession = (id: string) => {
    return Object.hasOwn(cache, id) ? cache[id] : undefined
  }
  
@@ -4778,7 +4802,7 @@ index 4e37a75..c2c2d96 100644
  const getStreamController = (id: string) => {
    const streams = get().streaming
    return Object.hasOwn(streams, id) ? streams[id] : undefined
-@@ -116,6 +152,14 @@ const sessionAccess = new Map<string, number>()
+@@ -116,6 +153,14 @@ const sessionAccess = new Map<string, number>()
  const unsavedSessions = new Set<string>()
  /** 保存失败时保留原件，重试成功后才释放。 */
  const pendingFiles = new Map<string, db.StoredFile[]>()
@@ -4793,7 +4817,7 @@ index 4e37a75..c2c2d96 100644
  const deletingSessions = new Set<string>()
  const deletionTasks = new Set<Promise<boolean>>()
  const streamFlushes = new Map<string, () => void>()
-@@ -186,7 +230,7 @@ const updateReply = (sessionId: string, reply: AssistantMessage) =>
+@@ -186,7 +231,7 @@ const updateReply = (sessionId: string, reply: AssistantMessage) =>
      ),
    }))
  
@@ -4802,7 +4826,7 @@ index 4e37a75..c2c2d96 100644
    const session = getSession(sessionId)
    if (session) {
      unsavedSessions.add(sessionId)
-@@ -214,7 +258,22 @@ const persist = (sessionId: string) => {
+@@ -214,7 +259,22 @@ const persist = (sessionId: string) => {
            trimSessionCache()
          }
        })
@@ -4826,7 +4850,7 @@ index 4e37a75..c2c2d96 100644
          db.reportStorageError('save session')(error)
          if (epoch === historyEpoch && getSession(sessionId)) {
            set((state) => ({
-@@ -225,9 +284,14 @@ const persist = (sessionId: string) => {
+@@ -225,9 +285,14 @@ const persist = (sessionId: string) => {
    }
  }
  
@@ -4843,7 +4867,7 @@ index 4e37a75..c2c2d96 100644
    }
  }
  
-@@ -295,6 +359,231 @@ const settleInterrupted = (session: Session): Session => {
+@@ -295,6 +360,231 @@ const settleInterrupted = (session: Session): Session => {
    }
  }
  
@@ -5075,7 +5099,7 @@ index 4e37a75..c2c2d96 100644
  export const initChat = (): Promise<void> => {
    if (get().ready) {
      return Promise.resolve()
-@@ -306,6 +595,7 @@ export const initChat = (): Promise<void> => {
+@@ -306,6 +596,7 @@ export const initChat = (): Promise<void> => {
    set({ initError: false })
    initTask = (async () => {
      try {
@@ -5083,7 +5107,7 @@ index 4e37a75..c2c2d96 100644
        const summaries = await db.loadSessionSummaries()
        if (epoch === historyEpoch) {
          set({ ready: true, sessions: sortSessions(summaries) })
-@@ -423,6 +713,7 @@ export const replaceHistory = async (write: () => Promise<void>): Promise<number
+@@ -423,6 +714,7 @@ export const replaceHistory = async (write: () => Promise<void>): Promise<number
      sessionAccess.clear()
      unsavedSessions.clear()
      pendingFiles.clear()
@@ -5091,7 +5115,7 @@ index 4e37a75..c2c2d96 100644
      clearAllDrafts()
      set({
        ready: true,
-@@ -463,6 +754,74 @@ export const selectSession = (id: string) => {
+@@ -463,6 +755,74 @@ export const selectSession = (id: string) => {
    }
  }
  
@@ -5166,7 +5190,7 @@ index 4e37a75..c2c2d96 100644
  export const renameSession = (id: string, title: string) => {
    if (get().importingHistory || deletingSessions.has(id)) {
      return
-@@ -471,19 +830,108 @@ export const renameSession = (id: string, title: string) => {
+@@ -471,19 +831,108 @@ export const renameSession = (id: string, title: string) => {
    if (controller) {
      titleRequests.delete(controller)
    }
@@ -5276,7 +5300,7 @@ index 4e37a75..c2c2d96 100644
  /**
   * 删除会话；本地原件仅在没有其他会话引用时清理。远端文件不删：导入、编辑、重新生成都会复用同一个附件，
   * 同一服务端文件可能被多个会话引用，不维护引用计数。
-@@ -561,6 +1009,17 @@ export const sendMessage = (targetSessionId: string | null) => {
+@@ -561,6 +1010,18 @@ export const sendMessage = (targetSessionId: string | null) => {
      return false
    }
    const { text, files } = prepared
@@ -5286,7 +5310,8 @@ index 4e37a75..c2c2d96 100644
 +    const preparedCounts = countAttachmentKinds(files)
 +    if (
 +      sentCounts.documents + preparedCounts.documents > MAX_DOCUMENT_COUNT ||
-+      sentCounts.images + preparedCounts.images > MAX_IMAGE_COUNT
++      sentCounts.images + preparedCounts.images > MAX_IMAGE_COUNT ||
++      sentCounts.imageBytes + preparedCounts.imageBytes > MAX_IMAGE_TOTAL_BYTES
 +    ) {
 +      return false
 +    }
@@ -5294,7 +5319,7 @@ index 4e37a75..c2c2d96 100644
    const now = Date.now()
    let sessionId = targetSessionId
    if (
-@@ -595,7 +1054,7 @@ export const sendMessage = (targetSessionId: string | null) => {
+@@ -595,7 +1056,7 @@ export const sendMessage = (targetSessionId: string | null) => {
      id: createId(),
      role: 'user',
      content: text,
@@ -5303,7 +5328,7 @@ index 4e37a75..c2c2d96 100644
        id,
        serverId,
        // 草稿附件已上传成功，每张图片都在上传前检查过长边，超限的已缩小。
-@@ -604,6 +1063,7 @@ export const sendMessage = (targetSessionId: string | null) => {
+@@ -604,6 +1065,7 @@ export const sendMessage = (targetSessionId: string | null) => {
        size,
        isImage,
        mimeType,
@@ -5311,7 +5336,7 @@ index 4e37a75..c2c2d96 100644
      })),
      createdAt: now,
    }
-@@ -979,10 +1439,77 @@ const waitForRetry = (attempt: number, signal: AbortSignal) =>
+@@ -979,10 +1441,77 @@ const waitForRetry = (attempt: number, signal: AbortSignal) =>
      signal.addEventListener('abort', onAbort, { once: true })
    })
  
@@ -5389,7 +5414,7 @@ index 4e37a75..c2c2d96 100644
   */
  const streamReply = async (sessionId: string, initial: AssistantMessage, request: Request) => {
    const controller = new AbortController()
-@@ -998,6 +1525,8 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
+@@ -998,6 +1527,8 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
      updateReply(sessionId, reply)
    }
    streamFlushes.set(sessionId, flush)
@@ -5398,7 +5423,7 @@ index 4e37a75..c2c2d96 100644
  
    try {
      for (let attempt = 0; ; attempt += 1) {
-@@ -1028,10 +1557,14 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
+@@ -1028,10 +1559,14 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
              system: SYSTEM_PROMPT,
              messages,
              thinking: { type: initial.thinking ? 'enabled' : 'disabled' },
@@ -5417,7 +5442,7 @@ index 4e37a75..c2c2d96 100644
            controller.signal
          )
          const blockIndexes = new Map<number, number>()
-@@ -1057,6 +1590,15 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
+@@ -1057,6 +1592,15 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
            }
          }
          reply = settleReply(reply, 'done', Date.now())
@@ -5433,7 +5458,7 @@ index 4e37a75..c2c2d96 100644
          break
        } catch (error) {
          if (controller.signal.aborted) {
-@@ -1072,6 +1614,12 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
+@@ -1072,6 +1616,12 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
            })
            break
          }
@@ -5446,7 +5471,7 @@ index 4e37a75..c2c2d96 100644
          // 附件失效：重新补传后重发。收到过内容块（含丢弃的客户端工具）后不自动重发。
          if (
            attempt < FILE_RETRY_LIMIT &&
-@@ -1089,12 +1637,65 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
+@@ -1089,12 +1639,65 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
            // 已收到 message_delta 的结束原因，只是缺了结尾的 message_stop
            reply = settleReply(reply, 'done', Date.now())
          } else if (error instanceof ApiError) {

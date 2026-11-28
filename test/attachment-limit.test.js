@@ -72,6 +72,7 @@ test('发送额度校验：纯文本消息不受会话历史附件累计限制',
   assert.match(body, /countSessionFiles\(sessionId\)/, '额度校验应基于可见分支的已发送附件数')
   assert.match(body, /MAX_DOCUMENT_COUNT/, '发送时应校验文档上限')
   assert.match(body, /MAX_IMAGE_COUNT/, '发送时应校验图片上限')
+  assert.match(body, /MAX_IMAGE_TOTAL_BYTES/, '发送时应校验图片总大小')
 })
 
 test('sendMessage 内部额度校验同样只拦带附件的消息', () => {
@@ -82,6 +83,7 @@ test('sendMessage 内部额度校验同样只拦带附件的消息', () => {
     assert.match(body, /countSessionFiles\(targetSessionId\)/, 'sendMessage() 应基于可见分支的已发送附件数')
     assert.match(body, /MAX_DOCUMENT_COUNT/, 'sendMessage() 应校验文档上限')
     assert.match(body, /MAX_IMAGE_COUNT/, 'sendMessage() 应校验图片上限')
+    assert.match(body, /MAX_IMAGE_TOTAL_BYTES/, 'sendMessage() 应校验图片总大小')
     return
   }
   // CI 里没有 vendor；直接检查补丁中新增的守卫。
@@ -90,6 +92,7 @@ test('sendMessage 内部额度校验同样只拦带附件的消息', () => {
   assert.match(section, /countSessionFiles\(targetSessionId\)/, 'sendMessage() 缺少会话附件计数')
   assert.match(section, /MAX_DOCUMENT_COUNT/, 'sendMessage() 缺少文档上限')
   assert.match(section, /MAX_IMAGE_COUNT/, 'sendMessage() 缺少图片上限')
+  assert.match(section, /MAX_IMAGE_TOTAL_BYTES/, 'sendMessage() 缺少图片总大小上限')
 })
 
 test('附件额度：文档 20 个、图片 600 张，分别计数', () => {
@@ -97,6 +100,7 @@ test('附件额度：文档 20 个、图片 600 张，分别计数', () => {
     const source = readFileSync(vendorAttachments, 'utf8')
     assert.match(source, /export const MAX_DOCUMENT_COUNT = 20\b/)
     assert.match(source, /export const MAX_IMAGE_COUNT = 600\b/)
+    assert.match(source, /export const MAX_IMAGE_TOTAL_BYTES = 200 \* 1024 \* 1024\b/)
     assert.match(source, /documents: number/)
     assert.match(source, /images: number/)
     return
@@ -104,6 +108,7 @@ test('附件额度：文档 20 个、图片 600 张，分别计数', () => {
   const section = patchSection('src/services/attachments.ts')
   assert.match(section, /^\+\s*export const MAX_DOCUMENT_COUNT = 20\b/m)
   assert.match(section, /^\+\s*export const MAX_IMAGE_COUNT = 600\b/m)
+  assert.match(section, /^\+\s*export const MAX_IMAGE_TOTAL_BYTES = 200 \* 1024 \* 1024\b/m)
   assert.match(section, /^\+\s*documents: number/m)
   assert.match(section, /^\+\s*images: number/m)
 })
