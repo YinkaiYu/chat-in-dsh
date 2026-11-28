@@ -155,10 +155,12 @@ test('上传大小兼容官方 bytes 与 size_bytes，缺失时用表单文件�
     assert.match(source, /uploaded\.size_bytes/, '应优先读取 size_bytes')
     assert.match(source, /uploaded\.bytes/, '应兼容官方 bytes 字段')
     assert.match(source, /uploadBody\.size/, '缺失大小字段时应使用表单文件大小')
+    assert.match(source, /Promise<FileObject & \{ size_bytes: number \}>/, '返回类型应保证 size_bytes 已补齐')
     return
   }
   const section = patchSection('src/services/api/client.ts')
   assert.match(section, /uploaded\.size_bytes/)
   assert.match(section, /uploaded\.bytes/)
   assert.match(section, /uploadBody\.size/)
+  assert.match(section, /Promise<FileObject & \{ size_bytes: number \}>/)
 })

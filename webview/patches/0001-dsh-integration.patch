@@ -3925,7 +3925,7 @@ index 91df5f9..0a812a9 100644
    <body>
      <div id="root"></div>
 diff --git a/src/services/api/client.ts b/src/services/api/client.ts
-index 5f6883c..91f244c 100644
+index 5f6883c..326576d 100644
 --- a/src/services/api/client.ts
 +++ b/src/services/api/client.ts
 @@ -35,7 +35,9 @@ export class ApiError extends Error {
@@ -3958,7 +3958,7 @@ index 5f6883c..91f244c 100644
  }
  
  export const request = async (url: string, init: RequestInit): Promise<Response> => {
-@@ -101,7 +105,7 @@ export const verifyApiKey = async (apiKey: string, signal?: AbortSignal): Promis
+@@ -101,26 +105,35 @@ export const verifyApiKey = async (apiKey: string, signal?: AbortSignal): Promis
  
  /**
   * POST /anthropic/v1/files 上传附件（不设过期时间，会话里的历史附件一直可用）。
@@ -3967,9 +3967,11 @@ index 5f6883c..91f244c 100644
   */
  export const uploadFile = async (
    apiKey: string,
-@@ -110,17 +114,26 @@ export const uploadFile = async (
+   file: File,
+   purpose: FilePurpose | null,
    signal?: AbortSignal
- ): Promise<FileObject> => {
+-): Promise<FileObject> => {
++): Promise<FileObject & { size_bytes: number }> => {
    const form = new FormData()
 -  if (purpose) {
 -    form.append('purpose', purpose)
