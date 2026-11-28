@@ -107,3 +107,16 @@ test('附件额度：文档 20 个、图片 600 张，分别计数', () => {
   assert.match(section, /^\+\s*documents: number/m)
   assert.match(section, /^\+\s*images: number/m)
 })
+
+test('历史附件只统计实际会进入请求的 serverId', () => {
+  if (existsSync(vendorStore)) {
+    const source = readFileSync(vendorStore, 'utf8')
+    const start = source.indexOf('export const countSessionFiles =')
+    assert.notEqual(start, -1, '找不到 countSessionFiles')
+    const body = source.slice(start, start + 2000)
+    assert.match(body, /serverId\s*!==\s*null/, 'countSessionFiles 应跳过没有 serverId 的导入附件')
+    return
+  }
+  const section = patchSection('src/services/chat/store.ts')
+  assert.match(section, /\.filter\(\(file\) => file\.serverId !== null\)/, '补丁中的历史附件计数应过滤 serverId')
+})
